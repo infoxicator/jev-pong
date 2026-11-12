@@ -1,0 +1,31 @@
+{
+  "name": "jev-vs-jev-pong",
+  "version": "1.0.0",
+  "private": true,
+  "type": "module",
+  "engines": {
+    "node": ">=22"
+  },
+  "scripts": {
+    "dev": "vite --host 127.0.0.1",
+    "typecheck": "tsc --noEmit",
+    "build": "npm run typecheck && vite build",
+    "test": "vitest run",
+    "test:e2e": "playwright test"
+  },
+  "devDependencies": {
+    "@playwright/test": "^1.56.1",
+    "@types/node": "^24.10.0",
+    "@types/ws": "^8.18.2",
+    "@vitest/browser-playwright": "^4.0.8",
+    "typescript": "^5.9.3",
+    "vite": "^7.2.2",
+    "vitest": "^4.0.8"
+  },
+  "dependencies": {
+    "@typesafe-ai/sdk": "^0.7.0",
+    "dotenv": "^18.0.10",
+    "tsx": "^4.23.15",
+    "ws": "^8.23.0"
+  }
+}
