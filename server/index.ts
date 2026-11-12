@@ -1,15 +1,98 @@
 import { createServer } from 'node:http';
+import { performance } from 'node:perf_hooks';
+import { readFile } from 'node:fs/promises';
+import { resolve, extname } from 'node:path';
 import { config as loadEnv } from 'dotenv';
-import { createServer as createViteServer } from 'vite';
+import { WebSocketServer, WebSocket } from 'ws';
 import { createBrain, providerConfig } from './jev';
-import type { Snapshot } from '../src/agents';
+import { createGame, step, DT, startServe, setIntent, SIDES, type Side, type GameState } from '../src/physics';
+import { snapshot, type Decision } from '../src/agents';
+import type { ClientMessage, ServerMessage, ArenaState } from '../src/protocol';
 loadEnv({path:'.env.local',quiet:true});
-const config=providerConfig(),brain=createBrain(config);
-const vite=await createViteServer({server:{middlewareMode:true},appType:'spa'});
+if(Number(process.versions.node.split('.')[0])<22)throw new Error('Jev Pong requires Node.js 22 or newer.');
+const config=providerConfig(),brains={left:createBrain(config),right:createBrain(config)};
+const port=Number(process.env.PORT??5173), production=process.argv.includes('--production');
+const vite=production?null:await (await import('vite')).createServer({server:{middlewareMode:true},appType:'spa'});
+let game=createGame();
+const players:Record<Side,WebSocket|null>={left:null,right:null};
+const decisions:Record<Side,Decision|null>={left:null,right:null},intents={left:0,right:0},intentTicks={left:0,right:0};
+let history:GameState[]=[],lastReplay:GameState[]=[];
+const send=(ws:WebSocket,message:ServerMessage)=>{if(ws.readyState===WebSocket.OPEN)ws.send(JSON.stringify(message));};
+const connected=()=>({left:players.left?.readyState===WebSocket.OPEN,right:players.right?.readyState===WebSocket.OPEN});
+const state=():ArenaState=>({type:'state',game,connected:connected(),serverTime:Date.now(),decisions,intents,mode:config.provider});
 const server=createServer(async(req,res)=>{
-  if(req.url==='/api/decision'&&req.method==='POST') {
-    try { let body='';for await(const chunk of req){body+=chunk;if(body.length>4096)throw new Error('Too big');}const s=JSON.parse(body) as Snapshot;const d=await brain(s,s.tick);res.setHeader('Content-Type','application/json');res.end(JSON.stringify(d)); }catch{res.writeHead(400);res.end('Invalid snapshot');}return;
-  }
-  vite.middlewares(req,res,()=>{res.writeHead(404);res.end();});
+  if(req.url==='/health') {res.setHeader('Content-Type','application/json');res.end(JSON.stringify({ok:true,mode:config.provider,tick:game.tick,connected:connected(),physicsHz:120,snapshotHz:30,node:process.versions.node}));return;}
+  if(vite){vite.middlewares(req,res,()=>{res.writeHead(404);res.end();});return;}
+  try {
+    const pathname=decodeURIComponent(new URL(req.url??'/', 'http://localhost').pathname);
+    const file=resolve('dist','.'+pathname),root=resolve('dist');
+    if(!file.startsWith(root+'/')&&file!==root)throw new Error('Invalid path');
+    const path=extname(file)?file:resolve(root,'index.html');
+    const mime:Record<string,string>={'.html':'text/html','.js':'application/javascript','.css':'text/css','.woff2':'font/woff2','.svg':'image/svg+xml'};
+    res.setHeader('Content-Type',mime[extname(path)]??'application/octet-stream');res.end(await readFile(path));
+  }catch{res.writeHead(404);res.end('Not found');}
 });
-server.listen(5173,'127.0.0.1',()=>console.log(`Jev Pong · ${config.provider} · http://127.0.0.1:5173`));
+const wss=new WebSocketServer({noServer:true,maxPayload:4096});
+server.on('upgrade',(req,socket,head)=>{
+  // Loopback-only game. Reject cross-origin browser connections before any paid calls.
+  const expected=`http://${req.headers.host}`;
+  if(req.headers.origin!==expected||new URL(req.url??'/',expected).pathname!=='/ws'){socket.destroy();return;}
+  wss.handleUpgrade(req,socket,head,ws=>wss.emit('connection',ws,req));
+});
+wss.on('connection',(ws,req)=>{
+  const requested=new URL(req.url??'/',`http://${req.headers.host}`).searchParams.get('side');
+  const side:Side|null=requested==='left'||requested==='right'?requested:null;
+  const assigned=side&&!players[side]?side:null;
+  if(assigned) {
+    players[assigned]=ws;decisions[assigned]=null;intentTicks[assigned]=game.tick;
+    if(connected().left&&connected().right&&game.phase==='lobby') {game.ball={x:500,y:280,vx:430,vy:148};game.rally=0;startServe(game);}
+  }
+  send(ws,{type:'joined',side:assigned,...(side&&!assigned?{reason:'This paddle is already connected. Watching as spectator.'}:{})});send(ws,state());
+  let busy=false,lastDecision=0,sequence=0,lastAccepted=0,lastSeen=Date.now(),windowStart=Date.now(),messages=0;
+  const heartbeat=setInterval(()=>{if(Date.now()-lastSeen>10000)ws.terminate();},2000);
+  ws.on('message',async data=>{
+    lastSeen=Date.now();
+    if(Date.now()-windowStart>1000){windowStart=Date.now();messages=0;}
+    if(++messages>40){ws.close(1008,'Too many messages');return;}
+    try {
+      const msg=JSON.parse(data.toString()) as ClientMessage;
+      if(msg.type==='ping'&&Number.isFinite(msg.sent)){send(ws,{type:'pong',sent:msg.sent});return;}
+      if(msg.type==='replay'){send(ws,{type:'replay',frames:lastReplay});return;}
+      if(msg.type==='reset') {
+        game=createGame();history=[];lastReplay=[];
+        for(const s of SIDES){decisions[s]=null;intents[s]=0;intentTicks[s]=0;}
+        if(connected().left&&connected().right)startServe(game);return;
+      }
+      if(!assigned||players[assigned]!==ws)return;
+      if(msg.type==='decide') {
+        if(busy||Date.now()-lastDecision<150||game.phase==='lobby'||game.phase==='won')return;
+        busy=true;lastDecision=Date.now();const capturedPoint=game.pointId;
+        try {
+          const decision=await brains[assigned](snapshot(game,assigned),++sequence);
+          if(players[assigned]!==ws||ws.readyState!==WebSocket.OPEN||capturedPoint!==game.pointId)return;
+          decisions[assigned]=decision;send(ws,{type:'decision',decision});
+        }finally{busy=false;}
+      }
+      if(msg.type==='intent') {
+        const d=decisions[assigned];
+        if(d&&msg.sequence===d.sequence&&msg.sequence>lastAccepted&&Number.isFinite(msg.target_y)&&Math.abs(msg.target_y-d.action.target_y)<0.01){lastAccepted=msg.sequence;setIntent(game,assigned,msg.target_y);intents[assigned]++;intentTicks[assigned]=game.tick;decisions[assigned]={...d};}
+      }
+    }catch{send(ws,{type:'error',message:'Invalid message'});}
+  });
+  ws.on('error',()=>{});
+  ws.on('close',()=>{clearInterval(heartbeat);if(assigned&&players[assigned]===ws){players[assigned]=null;game.phase='lobby';}});
+});
+let previous=performance.now(),accumulator=0,lastBroadcast=-1;
+const timer=setInterval(()=>{
+  const now=performance.now();accumulator+=Math.min((now-previous)/1000,0.25);previous=now;
+  while(accumulator>=DT){
+    for(const side of SIDES)if(game.tick-intentTicks[side]>240)setIntent(game,side,280);
+    const point=game.pointId;step(game);accumulator-=DT;
+    if(game.pointId!==point){lastReplay=[...history,structuredClone(game)];history=[];}
+    if(game.tick%4===0&&game.phase==='play'){history.push(structuredClone(game));if(history.length>240)history.shift();}
+  }
+  if(Math.floor(game.tick/4)!==lastBroadcast){lastBroadcast=Math.floor(game.tick/4);const message=state();for(const client of wss.clients)send(client,message);}
+},4);
+server.listen(port,'127.0.0.1',()=>console.log(`\nJev vs Jev Pong · ${config.provider.toUpperCase()}\n  Local: http://127.0.0.1:${port}\n  Left:  http://127.0.0.1:${port}/?side=left\n  Right: http://127.0.0.1:${port}/?side=right\n  Watch: http://127.0.0.1:${port}/?spectate\n`));
+async function shutdown(){clearInterval(timer);for(const ws of wss.clients)ws.terminate();wss.close();server.close();await vite?.close();process.exit(0);}
+process.on('SIGINT',shutdown);process.on('SIGTERM',shutdown);

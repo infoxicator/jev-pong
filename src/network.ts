@@ -1,0 +1,45 @@
+import type { GameState, Side } from './physics';
+import type { ArenaState, ClientMessage, ServerMessage } from './protocol';
+export interface Connection { state:ArenaState|null; side:Side|null; status:string; latency:number; received:number; onReplay:(frames:GameState[])=>void; send:(message:ClientMessage)=>void }
+export function connect(requested:Side|null):Connection {
+  let ws:WebSocket|null=null,retry=300,closed=false,awaiting=false,lastRequest=0;
+  const c:Connection={state:null,side:null,status:'CONNECTING',latency:0,received:0,onReplay:()=>{},send:msg=>{if(ws?.readyState===WebSocket.OPEN)ws.send(JSON.stringify(msg));}};
+  const open=()=>{
+    ws=new WebSocket(`${location.protocol==='https:'?'wss':'ws'}://${location.host}/ws${requested?`?side=${requested}`:''}`);
+    ws.onopen=()=>{c.status='CONNECTED';retry=300;};
+    ws.onmessage=event=>{
+      const message=JSON.parse(event.data) as ServerMessage;
+      if(message.type==='joined'){c.side=message.side;c.status=message.reason?'PADDLE TAKEN · SPECTATING':'CONNECTED';}
+      if(message.type==='state'){c.state=message;c.received=performance.now();}
+      if(message.type==='pong'){c.latency=Math.round(performance.now()-message.sent);}
+      if(message.type==='decision'){awaiting=false;if(c.side)c.send({type:'intent',sequence:message.decision.sequence,target_y:message.decision.action.target_y});}
+      if(message.type==='replay')c.onReplay(message.frames);
+    };
+    ws.onclose=()=>{c.status='RECONNECTING';c.side=null;awaiting=false;if(!closed){setTimeout(open,retry);retry=Math.min(3000,retry*1.5);}};
+    ws.onerror=()=>ws?.close();
+  };
+  open();
+  const agentTimer=setInterval(()=>{
+    // Driven by this player window; the server proxy never chooses when to act.
+    if(c.side&&c.state&&c.state.game.phase!=='lobby'&&(!awaiting||performance.now()-lastRequest>2000)){
+      awaiting=true;lastRequest=performance.now();c.send({type:'decide'});
+    }
+  },200);
+  const pingTimer=setInterval(()=>c.send({type:'ping',sent:performance.now()}),1000);
+  addEventListener('pagehide',()=>{closed=true;clearInterval(agentTimer);clearInterval(pingTimer);ws?.close();});
+  return c;
+}
+/** Buffered interpolation uses arrival times, avoiding assumptions about client/server clocks. */
+export function createInterpolator() {
+  const frames:{time:number;game:GameState}[]=[];let lastTick=-1;
+  return (state:ArenaState,received:number,now:number):GameState=>{
+    if(state.game.tick!==lastTick){if(state.game.tick<lastTick)frames.length=0;frames.push({time:received,game:state.game});lastTick=state.game.tick;if(frames.length>12)frames.shift();}
+    const target=now-80;
+    while(frames.length>2&&frames[1].time<target)frames.shift();
+    const a=frames[0],b=frames[1];
+    if(!b||a.game.phase!==b.game.phase||a.game.pointId!==b.game.pointId)return a.game;
+    const t=Math.max(0,Math.min(1,(target-a.time)/Math.max(1,b.time-a.time)));
+    const lerp=(x:number,y:number)=>x+(y-x)*t;
+    return {...b.game,ball:{...b.game.ball,x:lerp(a.game.ball.x,b.game.ball.x),y:lerp(a.game.ball.y,b.game.ball.y)},paddles:{left:lerp(a.game.paddles.left,b.game.paddles.left),right:lerp(a.game.paddles.right,b.game.paddles.right)}};
+  };
+}
