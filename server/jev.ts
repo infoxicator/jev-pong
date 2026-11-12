@@ -1,6 +1,6 @@
 import { choice, TypeSafeClient, type TypeSafeClientConfig } from '@typesafe-ai/sdk';
 import { H, PADDLE_H, clamp } from '../src/physics';
-import { mockBrain, PERSONAS, type Action, type Decision, type Snapshot } from '../src/agents';
+import { mockBrain, intercept, PERSONAS, type Action, type Decision, type Snapshot } from '../src/agents';
 export interface ProviderConfig { mock: boolean; provider: 'openrouter'|'vercel'|'mock'; apiKey?: string; baseURL?: string; model: string }
 export function providerConfig(env: NodeJS.ProcessEnv = process.env): ProviderConfig {
   const provider=env.JEV_PROVIDER ?? (env.OPENROUTER_API_KEY?'openrouter':env.AI_GATEWAY_API_KEY?'vercel':'mock');
@@ -19,7 +19,7 @@ export function createBrain(config: ProviderConfig, transport?: TypeSafeClientCo
       const persona=PERSONAS[s.side];
       const lanes=Object.fromEntries(Array.from({length:17},(_,i)=>[`lane_${i}`,`Paddle center y=${Math.round(PADDLE_H/2+i*(H-PADDLE_H)/16)} pixels`]));
       const taunts=Object.fromEntries(persona.taunts.map((text,i)=>[`line_${i}`,text]));
-      const { answers }=await client.systemOne({ model:config.model, state:{ game:'Pong. Arena 1000x560. y increases downward. Ball reflects at y=7 and 553. Paddle height 86, speed 470px/s. Predict ball arrival at your paddle x=53 (left) or 947 (right).', persona:`You are ${persona.name}: ${persona.subtitle}. ${persona.motto}`, ...s, projected_intercept_y:Math.round((await import('../src/agents')).intercept(s)) }, questions:{ target:choice('Choose the paddle center lane that intercepts the approaching ball; recover toward center when it travels away.',lanes), move:choice('Which direction should your paddle move now?',{up:'toward y=0',down:'toward y=560',stay:'hold position'}), taunt:choice('Pick a short in-character line for this moment.',taunts) } },{signal:AbortSignal.timeout(1600)});
+      const { answers }=await client.systemOne({ model:config.model, state:{ game:'Pong. Arena 1000x560. y increases downward. Ball reflects at y=7 and 553. Paddle height 86, speed 470px/s. Predict ball arrival at your paddle x=53 (left) or 947 (right).', persona:`You are ${persona.name}: ${persona.subtitle}. ${persona.motto}`, ...s, projected_intercept_y:Math.round(intercept(s)) }, questions:{ target:choice('Choose the paddle center lane that intercepts the approaching ball; recover toward center when it travels away.',lanes), move:choice('Which direction should your paddle move now?',{up:'toward y=0',down:'toward y=560',stay:'hold position'}), taunt:choice('Pick a short in-character line for this moment.',taunts) } },{signal:AbortSignal.timeout(1600)});
       const index=Number(answers.target.choice.replace('lane_',''));
       if(!Number.isInteger(index)||index<0||index>16)throw new Error('Invalid lane');
       const move=answers.move.choice;

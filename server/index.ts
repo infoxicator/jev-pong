@@ -11,9 +11,9 @@ import type { ClientMessage, ServerMessage, ArenaState } from '../src/protocol';
 loadEnv({path:'.env.local',quiet:true});
 if(Number(process.versions.node.split('.')[0])<22)throw new Error('Jev Pong requires Node.js 22 or newer.');
 const config=providerConfig(),brains={left:createBrain(config),right:createBrain(config)};
-const port=Number(process.env.PORT??5173), production=process.argv.includes('--production');
-const vite=production?null:await (await import('vite')).createServer({server:{middlewareMode:true},appType:'spa'});
-let game=createGame();
+const port=Number(process.env.PORT??5177), production=process.argv.includes('--production');
+const vite=production?null:await (await import('vite')).createServer({server:{middlewareMode:true,hmr:{port:port+1000,host:'127.0.0.1'}},appType:'spa'});
+let game=createGame(),generation=0;
 const players:Record<Side,WebSocket|null>={left:null,right:null};
 const decisions:Record<Side,Decision|null>={left:null,right:null},intents={left:0,right:0},intentTicks={left:0,right:0};
 let history:GameState[]=[],lastReplay:GameState[]=[];
@@ -59,17 +59,17 @@ wss.on('connection',(ws,req)=>{
       if(msg.type==='ping'&&Number.isFinite(msg.sent)){send(ws,{type:'pong',sent:msg.sent});return;}
       if(msg.type==='replay'){send(ws,{type:'replay',frames:lastReplay});return;}
       if(msg.type==='reset') {
-        game=createGame();history=[];lastReplay=[];
+        game=createGame();generation++;history=[];lastReplay=[];
         for(const s of SIDES){decisions[s]=null;intents[s]=0;intentTicks[s]=0;}
         if(connected().left&&connected().right)startServe(game);return;
       }
       if(!assigned||players[assigned]!==ws)return;
       if(msg.type==='decide') {
         if(busy||Date.now()-lastDecision<150||game.phase==='lobby'||game.phase==='won')return;
-        busy=true;lastDecision=Date.now();const capturedPoint=game.pointId;
+        busy=true;lastDecision=Date.now();const capturedPoint=game.pointId,capturedGeneration=generation;
         try {
           const decision=await brains[assigned](snapshot(game,assigned),++sequence);
-          if(players[assigned]!==ws||ws.readyState!==WebSocket.OPEN||capturedPoint!==game.pointId)return;
+          if(players[assigned]!==ws||ws.readyState!==WebSocket.OPEN||capturedPoint!==game.pointId||capturedGeneration!==generation)return;
           decisions[assigned]=decision;send(ws,{type:'decision',decision});
         }finally{busy=false;}
       }
