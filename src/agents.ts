@@ -5,7 +5,7 @@ export const PERSONAS = {
 } as const;
 export interface Snapshot { tick: number; side: Side; ball: GameState['ball']; paddle: number; opponent: number; score: GameState['score']; rally: number }
 export interface Action { target_y: number; move: 'up' | 'down' | 'stay'; taunt: string; confidence: number }
-export interface Decision { action: Action; source: 'mock' | 'jev' | 'luna' | 'fallback'; responseMs: number; sequence: number; warning?: string }
+export interface Decision { action: Action; source: 'mock' | 'jev' | 'luna' | 'fallback'; responseMs: number; sequence: number; warning?: string; retryAfterMs?: number; api?: { status: number; requestId?: string; inputTokens?: number } }
 export const snapshot = (s: GameState, side: Side): Snapshot => ({ tick: s.tick, side, ball: {...s.ball}, paddle: s.paddles[side], opponent: s.paddles[side==='left'?'right':'left'], score: {...s.score}, rally: s.rally });
 /** Reflect a projected y through any number of wall bounces. */
 export function reflectY(y: number): number { const range=H-2*R, t=((y-R)%(range*2)+range*2)%(range*2);return R+(t>range?range*2-t:t); }

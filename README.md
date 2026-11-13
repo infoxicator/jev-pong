@@ -44,6 +44,25 @@ LUNA_MOCK=0
 
 Configure a real Jev provider as described below to run both sides live. Each side independently defaults to a mock if its own key is absent; the header shows **LIVE + MOCK** for a mixed configuration. `LUNA_MOCK=1` mocks only Luna. `JEV_MOCK=1` forces both players to use mocks, even if keys are configured. Each decision card identifies the actual model and whether its action was live, mocked, or a fallback. A mock Luna match exercises the wiring and presentation; it does not evaluate Luna's ability.
 
+### Luna rate limits and proof of live decisions
+
+Fast inference does not remove account quotas. The original 200ms Luna loop could issue 300 calls/minute. At the observed roughly 735 tokens/request, that demands about 220,500 tokens/minute. The live account returned a 60,000 TPM error and subsequently an exhausted 50 requests/day error. At five calls/second, 50 requests cover just ten seconds. Jev uses a separate provider and quota; successful Jev calls do not establish available OpenAI capacity.
+
+Luna now sends rounded game coordinates and shorter question descriptions while retaining all three typed choices and 17 paddle lanes. Live Luna calls pause at least 600ms after each response. The proxy increases this pause using actual input-token usage, the tighter configured/provider TPM limit, and 20% headroom. Override the app's budget in `.env.local`:
+
+```dotenv
+LUNA_INTERVAL_MS=600
+LUNA_TPM_BUDGET=60000
+```
+
+These settings only pace the app; they cannot increase the account's limits. On errors, the proxy supplies a labeled heuristic fallback and a cooldown. HTTP 429 responses honor `Retry-After`; failures without that header use bounded exponential backoff. Client and server enforce the cooldown, which survives reconnect, new match, and matchup changes within the server process. A later call uses current game state rather than retrying a stale snapshot.
+
+The header displays **API FALLBACK** when either latest action is a fallback. **APIS CONFIGURED** means credentials are configured but no live decision has been observed yet. The per-player labels **JEV / SYSTEM ONE** and **LUNA / DECISIONS** identify successfully decoded provider responses. Hover a Luna response time to inspect HTTP status, input tokens, request ID, and call delay; the same safe metadata travels in WebSocket `state.decisions.right.api`. Rate-limit warnings show the recognized token/request limit without forwarding raw error messages or credentials.
+
+For sustained live Luna play, check [OpenAI account limits](https://platform.openai.com/account/rate-limits) and [billing](https://platform.openai.com/account/billing), enable a suitable paid allowance or request a limit increase. Waiting for a daily limit to replenish offers only another small burst if the 50/day ceiling remains. A new key in the same organization does not create a separate organization allowance. See the official [rate-limit guide](https://developers.openai.com/api/docs/guides/rate-limits) and [Decisions guide](https://developers.openai.com/api/docs/guides/decisions).
+
+`npm run test:quota` runs three browser contexts against a local Decisions HTTP fixture: a live success followed by a daily-limit 429. It verifies pacing, visible fallback status, continued play by the other agent, and no extra upstream calls after reconnect/reset. This is a local simulation, not evidence of available real-account quota.
+
 `server/luna.ts` uses Web-standard `fetch` to call **`POST https://api.openai.com/v1/decisions`** with the model pinned to **`gpt-6-luna`**. This uses the Decisions endpoint, not Responses or chat completions. It sends a user message with text rules and an `input_json` game snapshot. Three typed `choice` questions ask for the same 17 target lanes, movement directions, and persona taunts used by Jev. Both sides receive the same geometric intercept hint and have the same 200 ms scheduling and paddle-speed limits. The action controller still follows `target_y`; `move` is informational.
 
 OpenAI returns a named `answers` array. The adapter validates each expected choice, refuses unknown lanes/models, and treats refusals, missing/duplicate answers, invalid confidence, HTTP errors, or a 1500 ms timeout as a **Luna-labeled heuristic fallback**. There are no automatic retries. Keys and provider HTTP requests stay on the server. The browser receives safe player metadata and actions only.

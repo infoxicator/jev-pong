@@ -5,7 +5,7 @@ import { resolve, extname } from 'node:path';
 import { config as loadEnv } from 'dotenv';
 import { WebSocketServer, WebSocket } from 'ws';
 import { createPlayers } from './players';
-import { isMatchup, matchupTitle, type Matchup } from '../src/match';
+import { isMatchup, matchupTitle, type Matchup, type Engine } from '../src/match';
 import { createGame, step, DT, startServe, setIntent, SIDES, type Side, type GameState } from '../src/physics';
 import { snapshot, type Decision } from '../src/agents';
 import type { ClientMessage, ServerMessage, ArenaState } from '../src/protocol';
@@ -19,6 +19,8 @@ const vite=production?null:await (await import('vite')).createServer({server:{mi
 let game=createGame(),generation=0;
 const players:Record<Side,WebSocket|null>={left:null,right:null};
 const decisions:Record<Side,Decision|null>={left:null,right:null},intents={left:0,right:0},intentTicks={left:0,right:0};
+// Provider cooldown survives player reconnects, new matches, and matchup changes.
+const providerCooldowns:Partial<Record<Engine,number>>={};
 let history:GameState[]=[],lastReplay:GameState[]=[];
 const send=(ws:WebSocket,message:ServerMessage)=>{if(ws.readyState===WebSocket.OPEN)ws.send(JSON.stringify(message));};
 const connected=()=>({left:players.left?.readyState===WebSocket.OPEN,right:players.right?.readyState===WebSocket.OPEN});
@@ -70,9 +72,12 @@ wss.on('connection',(ws,req)=>{
       if(!assigned||players[assigned]!==ws)return;
       if(msg.type==='decide') {
         if(busy||Date.now()-lastDecision<150||game.phase==='lobby'||game.phase==='won')return;
+        const engine=roster.players[assigned].engine,retryAfterMs=(providerCooldowns[engine]??0)-Date.now();
+        if(retryAfterMs>0){send(ws,{type:'cooldown',retryAfterMs});return;}
         busy=true;lastDecision=Date.now();const capturedPoint=game.pointId,capturedGeneration=generation;
         try {
           const decision=await roster.brains[assigned](snapshot(game,assigned),++sequence);
+          if(decision.retryAfterMs)providerCooldowns[engine]=Date.now()+decision.retryAfterMs;
           if(players[assigned]!==ws||ws.readyState!==WebSocket.OPEN||capturedPoint!==game.pointId||capturedGeneration!==generation)return;
           decisions[assigned]=decision;send(ws,{type:'decision',decision});
         }finally{busy=false;}

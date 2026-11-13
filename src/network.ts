@@ -2,7 +2,7 @@ import type { GameState, Side } from './physics';
 import type { ArenaState, ClientMessage, ServerMessage } from './protocol';
 export interface Connection { state:ArenaState|null; side:Side|null; status:string; latency:number; received:number; onReplay:(frames:GameState[])=>void; send:(message:ClientMessage)=>void }
 export function connect(requested:Side|null):Connection {
-  let ws:WebSocket|null=null,retry=300,closed=false,awaiting=false,lastRequest=0;
+  let ws:WebSocket|null=null,retry=300,closed=false,awaiting=false,lastRequest=0,nextDecisionAt=0;
   const c:Connection={state:null,side:null,status:'CONNECTING',latency:0,received:0,onReplay:()=>{},send:msg=>{if(ws?.readyState===WebSocket.OPEN)ws.send(JSON.stringify(msg));}};
   const open=()=>{
     ws=new WebSocket(`${location.protocol==='https:'?'wss':'ws'}://${location.host}/ws${requested?`?side=${requested}`:''}`);
@@ -10,18 +10,19 @@ export function connect(requested:Side|null):Connection {
     ws.onmessage=event=>{
       const message=JSON.parse(event.data) as ServerMessage;
       if(message.type==='joined'){c.side=message.side;c.status=message.reason?'PADDLE TAKEN · SPECTATING':'CONNECTED';}
-      if(message.type==='state'){if(c.state?.matchup!==message.matchup){awaiting=false;lastRequest=0;}c.state=message;c.received=performance.now();}
+      if(message.type==='state'){if(c.state?.matchup!==message.matchup){awaiting=false;lastRequest=0;nextDecisionAt=0;}c.state=message;c.received=performance.now();}
       if(message.type==='pong'){c.latency=Math.round(performance.now()-message.sent);}
-      if(message.type==='decision'){awaiting=false;if(c.side)c.send({type:'intent',sequence:message.decision.sequence,target_y:message.decision.action.target_y});}
+      if(message.type==='decision'){awaiting=false;nextDecisionAt=performance.now()+(message.decision.retryAfterMs??0);if(c.side)c.send({type:'intent',sequence:message.decision.sequence,target_y:message.decision.action.target_y});}
+      if(message.type==='cooldown'){awaiting=false;nextDecisionAt=performance.now()+message.retryAfterMs;}
       if(message.type==='replay')c.onReplay(message.frames);
     };
-    ws.onclose=()=>{c.status='RECONNECTING';c.side=null;awaiting=false;if(!closed){setTimeout(open,retry);retry=Math.min(3000,retry*1.5);}};
+    ws.onclose=()=>{c.status='RECONNECTING';c.side=null;awaiting=false;nextDecisionAt=0;if(!closed){setTimeout(open,retry);retry=Math.min(3000,retry*1.5);}};
     ws.onerror=()=>ws?.close();
   };
   open();
   const agentTimer=setInterval(()=>{
     // Driven by this player window; the server proxy never chooses when to act.
-    if(c.side&&c.state&&c.state.game.phase!=='lobby'&&(!awaiting||performance.now()-lastRequest>2000)){
+    if(c.side&&c.state&&c.state.game.phase!=='lobby'&&c.state.game.phase!=='won'&&performance.now()>=nextDecisionAt&&(!awaiting||performance.now()-lastRequest>2000)){
       awaiting=true;lastRequest=performance.now();c.send({type:'decide'});
     }
   },200);
