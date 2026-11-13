@@ -1,0 +1,3 @@
+.mcp-toolbar{display:flex;align-items:center;justify-content:space-between;gap:8px;padding:9px 16px;font:11px var(--font-sans,'Space Grotesk',sans-serif);background:var(--color-background-secondary,#11191b);color:var(--color-text-primary,#e1e9e5);border-bottom:1px solid var(--color-border-primary,#263c37)}
+.mcp-toolbar>div{display:flex;gap:7px;flex-wrap:wrap}.mcp-toolbar button{color:inherit;border:1px solid var(--color-border-primary,#365048);background:transparent;border-radius:5px;padding:6px 9px;cursor:pointer;font:inherit}.mcp-toolbar button:disabled{opacity:.4}.mcp-toolbar [hidden]{display:none}
+@media(max-width:650px){.mcp-toolbar{align-items:flex-start;flex-direction:column;font-size:10px}}

@@ -1,11 +1,17 @@
 import type { GameState, Side } from './physics';
 import type { ArenaState, ClientMessage, ServerMessage } from './protocol';
-export interface Connection { state:ArenaState|null; side:Side|null; status:string; latency:number; received:number; onReplay:(frames:GameState[])=>void; send:(message:ClientMessage)=>void }
+export interface Connection { state:ArenaState|null; side:Side|null; status:string; latency:number; received:number; onReplay:(frames:GameState[])=>void; send:(message:ClientMessage)=>void; close:()=>void }
+let endpoint:{origin:string;token:string}|null=null;
+/** Only used by the MCP entry point. Ordinary web URLs and same-origin checks are unchanged. */
+export function configureMcpConnection(origin:string,token:string){endpoint={origin,token};}
 export function connect(requested:Side|null):Connection {
   let ws:WebSocket|null=null,retry=300,closed=false,awaiting=false,lastRequest=0,nextDecisionAt=0;
-  const c:Connection={state:null,side:null,status:'CONNECTING',latency:0,received:0,onReplay:()=>{},send:msg=>{if(ws?.readyState===WebSocket.OPEN)ws.send(JSON.stringify(msg));}};
+  const c:Connection={state:null,side:null,status:'CONNECTING',latency:0,received:0,onReplay:()=>{},send:msg=>{if(ws?.readyState===WebSocket.OPEN)ws.send(JSON.stringify(msg));},close:()=>{closed=true;clearInterval(agentTimer);clearInterval(pingTimer);removeEventListener('pagehide',c.close);ws?.close();}};
   const open=()=>{
-    ws=new WebSocket(`${location.protocol==='https:'?'wss':'ws'}://${location.host}/ws${requested?`?side=${requested}`:''}`);
+    if(closed)return;
+    const url=new URL('/ws',endpoint?.origin??location.origin);url.protocol=url.protocol==='https:'?'wss:':'ws:';
+    if(requested)url.searchParams.set('side',requested);if(endpoint)url.searchParams.set('mcp_token',endpoint.token);
+    ws=new WebSocket(url);
     ws.onopen=()=>{c.status='CONNECTED';retry=300;};
     ws.onmessage=event=>{
       const message=JSON.parse(event.data) as ServerMessage;
@@ -27,7 +33,7 @@ export function connect(requested:Side|null):Connection {
     }
   },200);
   const pingTimer=setInterval(()=>c.send({type:'ping',sent:performance.now()}),1000);
-  addEventListener('pagehide',()=>{closed=true;clearInterval(agentTimer);clearInterval(pingTimer);ws?.close();});
+  addEventListener('pagehide',c.close,{once:true});
   return c;
 }
 /** Buffered interpolation uses arrival times, avoiding assumptions about client/server clocks. */

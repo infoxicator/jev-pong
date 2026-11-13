@@ -24,6 +24,30 @@ Use one hostname consistently. A player view owns one paddle. Opening an occupie
 
 Choose a different port with `PORT=5178 npm run demo`. The launcher refuses an occupied port. Dev HMR uses the game port plus 1000. Production: `npm run build && npm start` serves the built client from the same Node server.
 
+## MCP App
+
+The existing web URLs and three-window demo continue to work. Each game server now also exposes **Streamable HTTP at `/mcp`**. MCP and web views on the same game port share one authoritative arena.
+
+```sh
+npm run demo:mcp
+```
+
+Open **http://127.0.0.1:5178/** and click **Start AI players**. The local host connects to MCP **http://127.0.0.1:5177/mcp**, reads the tool's linked HTML resource, and renders the app through the official SDK's `AppBridge` in a separate-origin sandbox on port 5179. The web spectator remains **http://127.0.0.1:5177/?spectate**. Add `?autoplay=1` to the host URL to explicitly start agents on opening.
+
+If port 5177 is already running another game, use `PORT=5197 npm run demo:mcp`; then the MCP endpoint is **http://127.0.0.1:5197/mcp**, host **http://127.0.0.1:5198/** and sandbox port 5199. Different game ports create separate matches. `MCP_HOST_PORT` overrides the host port, with its sandbox on the following port.
+
+To attach the local host to an already-running updated game, first run `npm run build` and `npm start`, then `npm run mcp:host` in another terminal. In another MCP client, add the game's `/mcp` URL as a **Streamable HTTP** server and call **`open_pong`**. Local loopback URLs require a host that can reach this machine. An MCP Apps host renders the game; a text-only client receives its score and spectator link. Verified here with the real MCP SDK client and included Apps SDK host; remote hosted clients would require separate HTTPS hosting and authentication.
+
+- **`open_pong({ autoplay?: boolean })`** opens the arena, read-only by default. `autoplay: true` connects one controller per empty seat when the UI mounts. Existing web players retain their seats.
+- **`pong_status({})`** reads authoritative score, connectivity, accepted intents and latest decision metadata, without making provider calls.
+- **`ui://jev-pong/arena.html`** is the linked resource with MIME type `text/html;profile=mcp-app`. `vite-plugin-singlefile` bundles the shared canvas renderer, styles and local fonts into one HTML file.
+
+`demo:mcp` defaults to **mock mode**, even when `.env.local` contains keys. Use `JEV_MOCK=0 npm run demo:mcp` to explicitly enable configured paid providers, and `PONG_MATCHUP=jev-vs-luna` for Luna at startup or select it in the UI. Opening a read-only view starts no AI calls. **Start AI players** can incur charges in live mode; existing pacing and fallback labels apply.
+
+The MCP entry uses the official `App` lifecycle, host styles, safe-area insets, fullscreen and `openLink`. Scrolling it offscreen pauses rendering and disconnects its own controllers; stopping or closing it preserves separate web players. The view uses native WebSockets with a random two-hour connection capability supplied in tool-result `_meta`; it is not a provider key and is omitted from model-visible structured output. Ordinary web Origin checks remain enforced. MCP HTTP rejects nonlocal browser origins and invalid Host headers. The resource's CSP allows only the game's WebSocket origin; the included test host uses a separate-origin double-iframe sandbox. These controls target a loopback demo, not public multi-user hosting.
+
+`npm run test:mcp` starts an isolated mock game/host/sandbox on ports 5297–5299, connects a real MCP SDK client, and runs Playwright against the embedded app and separate web contexts. It verifies the MCP handshake, linked HTML, gameplay, both AI intents, scoring, shared state, replay, fullscreen, Luna selection, stop/start, seat ownership and teardown. Screenshot: `artifacts/mcp-app-scored.png` (ignored by Git).
+
 ## Jev versus Luna mode
 
 The original **Jev vs Jev** matchup remains the default. Choose **Jev vs Luna** in the arena to run Jev on the left and **GPT-6 Luna through OpenAI Decisions** on the right. Mode changes start a fresh match and are broadcast to every connected window; refreshing a player keeps the server-selected matchup.
@@ -151,14 +175,21 @@ flowchart LR
   N["Node server + ws\n120 Hz fixed physics\n30 Hz state broadcast\nAuthoritative score + lobby"]
   JL["Left Jev proxy\nserver-side SDK client"]
   JR["Right Jev proxy\nserver-side SDK client"]
-  P["OpenRouter or Vercel\nJev System One"]
+  P["Direct TypeSafe, OpenRouter or Vercel\nJev System One"]
+  H["MCP Apps host"]
+  A["Bundled MCP App\nSame canvas + optional player loops"]
+  O["OpenAI Decisions\ngpt-6-luna, optional right player"]
   M["Seeded mock brains\nheuristic + noise"]
   L <-->|"WebSocket: decide / answer / intent"| N
   R <-->|"WebSocket: decide / answer / intent"| N
   N -->|"snapshots + decisions"| S
   N --> JL & JR
   JL & JR --> P
+  JR --> O
   JL & JR -->|"mock mode or error fallback"| M
+  H <-->|"Streamable HTTP /mcp\nopen_pong + HTML resource + status"| N
+  H <-->|"AppBridge / postMessage"| A
+  A <-->|"Capability-authenticated WebSockets"| N
 ```
 
 Physics has no clock, randomness, I/O, or AI calls: `step(state)` always advances exactly 1/120 second. A monotonic accumulator runs it on the server, caps catch-up after long stalls, and pauses the match when a seat is empty. Intents are validated against the latest server-issued decision sequence, consumed once, clamped to the court, and followed with proportional smoothing and a maximum paddle speed. Stale intents recover toward center. Clients only render buffered authoritative snapshots; they never integrate ball physics or decide scores.
@@ -179,11 +210,13 @@ npm run build          # strict TypeScript check + Vite production build
 npm test               # Vitest in real headless Chromium
 npm run test:provider  # actual Jev SDK over local HTTP: success, 429, malformed, timeout
 npm run test:luna      # OpenAI Decisions HTTP contract, refusal/errors/timeout, per-side config
+npm run test:quota     # HTTP + browser loops: pacing and daily-limit cooldown
 npm run test:e2e       # production server + three separate browser contexts
+npm run test:mcp       # real MCP client + sandboxed UI + scored shared match
 PORT=5178 JEV_MOCK=1 npm run demo:smoke
 ```
 
-`npm run verify` runs build, unit tests, both provider adapter tests, and e2e in sequence. The e2e starts and stops its own server on 5187 with `JEV_MOCK=1`, opens left/right/spectator in separate contexts, observes actual WebSocket frames and sent agent intents, checks ball/paddle movement, waits for a point, exercises replay, disconnects and reconnects a player, preserves score, reloads a seat, opens the title card, resets the match, and checks a 480px layout for horizontal overflow. Screenshots are saved under ignored `test-results/`. `demo:smoke` launches the real launcher in headless mode and checks both player connections and visible mock decisions.
+`npm run verify` runs build, unit tests, both provider adapter tests, quota checks, web e2e and MCP verification in sequence. The e2e starts and stops its own server on 5187 with `JEV_MOCK=1`, opens left/right/spectator in separate contexts, observes actual WebSocket frames and sent agent intents, checks ball/paddle movement, waits for a point, exercises replay, disconnects and reconnects a player, preserves score, reloads a seat, opens the title card, resets the match, and checks a 480px layout for horizontal overflow. Screenshots are saved under ignored `test-results/`. `demo:smoke` launches the real launcher in headless mode and checks both player connections and visible mock decisions.
 
 Unit coverage: deterministic stepping, lobby/serve, wall and paddle collisions, rally acceleration, scoring once, win condition, target bounds, reflected intercept prediction, reproducible noise, valid actions, persona taunts. See `VERIFICATION.md` for recorded commands and outcomes.
 

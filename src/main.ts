@@ -9,6 +9,7 @@ import { createRenderer } from './canvas';
 import { connect, createInterpolator } from './network';
 import { PERSONAS } from './agents';
 import { engineFor, engineLabel, engineDetail, matchupTitle, type Matchup } from './match';
+export function mountArena(){
 const params=new URLSearchParams(location.search),requested=params.get('side');
 const side:Side|null=!params.has('spectate')&&(requested==='left'||requested==='right')?requested:null;
 const glyph=(s:Side)=>s==='left'?'<svg viewBox="0 0 64 64" aria-hidden="true"><path d="M12 46 32 12 52 46H12Zm10-9h20M32 12v34"/></svg>':'<svg viewBox="0 0 64 64" aria-hidden="true"><path d="m32 8 6 16 17-5-10 14 10 14-17-5-6 15-6-15-17 5 10-14L9 19l17 5Z"/></svg>';
@@ -41,6 +42,7 @@ let replayFrames:GameState[]=[],replayStart=0,lastUI=0,pointSeen=0,renderedMatch
 const tauntTime={left:0,right:0};
 connection.onReplay=frames=>{if(frames.length){replayFrames=frames;replayStart=performance.now();}};
 function frame(now:number){
+  if(document.documentElement.dataset.mcpHidden==='true'){animationId=requestAnimationFrame(frame);return;}
   const state=connection.state,liveGame=state?interpolate(state,connection.received,now):createGame();
   let game=liveGame;
   if(replayFrames.length){const index=Math.max(0,Math.floor((now-replayStart)/1000*30*0.65));if(index>=replayFrames.length)replayFrames=[];else game=replayFrames[index];}
@@ -93,6 +95,8 @@ function frame(now:number){
     pointSeen=liveGame.pointId;
     for(const a of document.querySelectorAll<HTMLAnchorElement>('[data-seat]'))a.setAttribute('aria-current',a.dataset.seat===(connection.side??'spectator')?'page':'false');
     document.body.dataset.matchup=matchup;document.body.dataset.phase=liveGame.phase;document.body.dataset.mode=mode;document.body.dataset.role=connection.side??'spectator';document.body.dataset.connection=connection.status;document.body.dataset.replay=String(replaying);
-  }requestAnimationFrame(frame);
+  }animationId=requestAnimationFrame(frame);
 }
-requestAnimationFrame(frame);
+let animationId=requestAnimationFrame(frame);
+return ()=>{cancelAnimationFrame(animationId);connection.close();};
+}

@@ -9,6 +9,7 @@ import { isMatchup, matchupTitle, type Matchup, type Engine } from '../src/match
 import { createGame, step, DT, startServe, setIntent, SIDES, type Side, type GameState } from '../src/physics';
 import { snapshot, type Decision } from '../src/agents';
 import type { ClientMessage, ServerMessage, ArenaState } from '../src/protocol';
+import { createPongMcp, PONG_RESOURCE } from './mcp';
 loadEnv({path:'.env.local',quiet:true});
 if(Number(process.versions.node.split('.')[0])<22)throw new Error('Jev Pong requires Node.js 22 or newer.');
 const initialMatchup=process.env.PONG_MATCHUP??'jev-vs-jev';
@@ -25,8 +26,10 @@ let history:GameState[]=[],lastReplay:GameState[]=[];
 const send=(ws:WebSocket,message:ServerMessage)=>{if(ws.readyState===WebSocket.OPEN)ws.send(JSON.stringify(message));};
 const connected=()=>({left:players.left?.readyState===WebSocket.OPEN,right:players.right?.readyState===WebSocket.OPEN});
 const state=():ArenaState=>({type:'state',game,connected:connected(),serverTime:Date.now(),decisions,intents,mode:roster.mode,matchup,players:roster.players});
+const mcp=createPongMcp(`http://127.0.0.1:${port}`,state);
 const server=createServer(async(req,res)=>{
-  if(req.url==='/health') {res.setHeader('Content-Type','application/json');res.end(JSON.stringify({ok:true,mode:roster.mode,matchup,players:roster.players,tick:game.tick,connected:connected(),physicsHz:120,snapshotHz:30,node:process.versions.node}));return;}
+  if(req.url?.split('?')[0]==='/mcp'){await mcp.handle(req,res);return;}
+  if(req.url==='/health') {res.setHeader('Content-Type','application/json');res.end(JSON.stringify({ok:true,mode:roster.mode,matchup,players:roster.players,tick:game.tick,connected:connected(),physicsHz:120,snapshotHz:30,node:process.versions.node,mcp:{endpoint:'/mcp',resource:PONG_RESOURCE}}));return;}
   if(vite){vite.middlewares(req,res,()=>{res.writeHead(404);res.end();});return;}
   try {
     const pathname=decodeURIComponent(new URL(req.url??'/', 'http://localhost').pathname);
@@ -39,9 +42,10 @@ const server=createServer(async(req,res)=>{
 });
 const wss=new WebSocketServer({noServer:true,maxPayload:4096});
 server.on('upgrade',(req,socket,head)=>{
-  // Loopback-only game. Reject cross-origin browser connections before any paid calls.
+  // Loopback-only game: same-origin web clients or an explicit MCP connection capability.
   const expected=`http://${req.headers.host}`;
-  if(req.headers.origin!==expected||new URL(req.url??'/',expected).pathname!=='/ws'){socket.destroy();return;}
+  const url=new URL(req.url??'/',expected);
+  if((req.headers.origin!==expected&&!mcp.acceptsToken(url.searchParams.get('mcp_token')))||url.pathname!=='/ws'){socket.destroy();return;}
   wss.handleUpgrade(req,socket,head,ws=>wss.emit('connection',ws,req));
 });
 wss.on('connection',(ws,req)=>{
