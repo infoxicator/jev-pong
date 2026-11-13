@@ -1,2 +1,3 @@
 import { mountArena } from './main';
-mountArena();
+import { prepareRoom,showHostingError } from './hosting';
+try{mountArena(await prepareRoom());}catch(error){showHostingError(error);}

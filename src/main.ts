@@ -9,7 +9,8 @@ import { createRenderer } from './canvas';
 import { connect, createInterpolator } from './network';
 import { PERSONAS } from './agents';
 import { engineFor, engineLabel, engineDetail, matchupTitle, type Matchup } from './match';
-export function mountArena(){
+import { showRoomPanel, type HostedRoom } from './hosting';
+export function mountArena(hosted:HostedRoom|null=null){
 const params=new URLSearchParams(location.search),requested=params.get('side');
 const side:Side|null=!params.has('spectate')&&(requested==='left'||requested==='right')?requested:null;
 const glyph=(s:Side)=>s==='left'?'<svg viewBox="0 0 64 64" aria-hidden="true"><path d="M12 46 32 12 52 46H12Zm10-9h20M32 12v34"/></svg>':'<svg viewBox="0 0 64 64" aria-hidden="true"><path d="m32 8 6 16 17-5-10 14 10 14-17-5-6 15-6-15-17 5 10-14L9 19l17 5Z"/></svg>';
@@ -29,17 +30,27 @@ document.querySelector('#app')!.innerHTML=`
   <footer><span>A LITTLE EXPERIMENT BY <a href="https://x.com/Infoxicador" target="_blank" rel="noopener">RUBEN CASAS <b>@Infoxicador</b> ↗</a></span><span>POWERED BY <strong id="provider-brand">TypeSafe AI</strong><span class="footer-cross">×</span><span id="provider-detail">JEV / SYSTEM ONE</span></span></footer>
 </main>
 <dialog id="intro"><div class="intro-grid"></div><span class="eyebrow">RUBEN CASAS PRESENTS / AGENT ARENA 001</span><div class="intro-title"><b>Jev</b> <em>vs</em> <b id="intro-opponent">Jev</b><span>PONG<span class="lime">.</span></span></div><p>Two agents. One very personal rivalry.</p><div class="intro-versus"><span class="lime">VECTOR<br/><small>THE CALCULATED ONE</small></span><em>VS</em><span class="purple"><b id="intro-right-engine">JEV / CHAOS</b><br/><small>THE UNPREDICTABLE ONE</small></span></div><button id="enter">Start fresh match ↗</button><span class="intro-credit" id="intro-credit">@Infoxicador · TYPESAFE AI / SYSTEM ONE</span></dialog>`;
-const connection=connect(side),interpolate=createInterpolator(),draw=createRenderer(document.querySelector('canvas')!);
+if(hosted){
+  if(!document.documentElement.dataset.mcpApp)showRoomPanel(hosted);
+  (document.querySelector('.brand') as HTMLAnchorElement).href=`/?room=${hosted.room}&spectate`;
+  for(const a of document.querySelectorAll<HTMLAnchorElement>('[data-seat],#lobby-links a')){
+    const seat=a.dataset.seat??(a.textContent?.includes('Vector')?'left':'right');
+    if(seat==='spectator')a.href=`/?room=${hosted.room}&spectate`;
+    else if(hosted.links)a.href=hosted.links[seat as 'left'|'right'];
+    else if(seat===side)a.href=location.href;else a.hidden=true;
+  }
+}
+const connection=connect(side,hosted),interpolate=createInterpolator(),draw=createRenderer(document.querySelector('canvas')!);
 const el=(id:string)=>document.getElementById(id)!;
 const intro=el('intro') as HTMLDialogElement;
 el('title-card').onclick=()=>intro.showModal();
 for(const button of document.querySelectorAll<HTMLButtonElement>('button[data-matchup]'))button.onclick=()=>{const matchup=button.dataset.matchup as Matchup;if(matchup!==connection.state?.matchup){replayFrames=[];connection.send({type:'matchup',matchup});}};
-el('enter').onclick=()=>{connection.send({type:'reset'});intro.close();};
+el('enter').onclick=()=>{if(connection.canReset)connection.send({type:'reset'});intro.close();};
 el('reset').onclick=()=>{replayFrames=[];connection.send({type:'reset'});};
 el('replay').onclick=()=>{if(replayFrames.length){replayFrames=[];return;}connection.send({type:'replay'});};
 if(params.has('intro'))intro.showModal();
 let replayFrames:GameState[]=[],replayStart=0,lastUI=0,pointSeen=0,renderedMatchup:Matchup|null=null;
-const tauntTime={left:0,right:0};
+const tauntTime={left:0,right:0};let lastPhase='lobby';
 connection.onReplay=frames=>{if(frames.length){replayFrames=frames;replayStart=performance.now();}};
 function frame(now:number){
   if(document.documentElement.dataset.mcpHidden==='true'){animationId=requestAnimationFrame(frame);return;}
@@ -48,7 +59,7 @@ function frame(now:number){
   if(replayFrames.length){const index=Math.max(0,Math.floor((now-replayStart)/1000*30*0.65));if(index>=replayFrames.length)replayFrames=[];else game=replayFrames[index];}
   const replaying=replayFrames.length>0;draw(game,replaying);
   if(now-lastUI>80){
-    lastUI=now;el('connection').textContent=`● ${connection.status}`;el('connection').classList.toggle('disconnected',connection.status!=='CONNECTED');
+    lastUI=now;(el('reset') as HTMLButtonElement).disabled=!connection.canReset;el('connection').textContent=`● ${connection.status}`;el('connection').classList.toggle('disconnected',connection.status!=='CONNECTED');
     const matchup=state?.matchup??'jev-vs-jev',luna=matchup==='jev-vs-luna';
     if(renderedMatchup!==matchup){
       replayFrames=[];renderedMatchup=matchup;document.title=`${matchupTitle(matchup)} · Agent Arena`;
@@ -58,7 +69,7 @@ function frame(now:number){
       el('intro-right-engine').textContent=luna?'LUNA / CHAOS':'JEV / CHAOS';el('intro-credit').textContent=luna?'@Infoxicador · TYPESAFE AI × OPENAI DECISIONS':'@Infoxicador · TYPESAFE AI / SYSTEM ONE';
       tauntTime.left=0;tauntTime.right=0;
     }
-    for(const button of document.querySelectorAll<HTMLButtonElement>('button[data-matchup]')){button.setAttribute('aria-pressed',String(button.dataset.matchup===matchup));button.disabled=!state;}
+    for(const button of document.querySelectorAll<HTMLButtonElement>('button[data-matchup]')){button.setAttribute('aria-pressed',String(button.dataset.matchup===matchup));button.disabled=!state||!connection.canReset;}
     const mode=state?.mode??'connecting',fallback=state&&Object.values(state.decisions).some(d=>d?.source==='fallback');el('mode').textContent=fallback?'API FALLBACK':mode==='mock'?'MOCK BRAINS':mode==='mixed'?'LIVE + MOCK':state&&Object.values(state.decisions).some(d=>d?.source==='jev'||d?.source==='luna')?'LIVE BRAINS':state?'APIS CONFIGURED':'CONNECTING';
     el('score-left').textContent=String(game.score.left);el('score-right').textContent=String(game.score.right);
     el('rally').textContent=String(game.rally).padStart(2,'0');el('best').textContent=String(liveGame.bestRally).padStart(2,'0');
@@ -68,6 +79,7 @@ function frame(now:number){
     el('court-label').textContent=replaying?'↺ INSTANT REPLAY / 0.65×':'● LIVE MATCH';
     el('match-label').textContent=liveGame.phase==='won'?'MATCH COMPLETE':Math.max(liveGame.score.left,liveGame.score.right)===WIN_SCORE-1?'MATCH POINT':`FIRST TO ${WIN_SCORE}`;
     el('match-label').classList.toggle('drama',Math.max(liveGame.score.left,liveGame.score.right)===WIN_SCORE-1);
+    if(lastPhase==='lobby'&&liveGame.phase!=='lobby'){const panel=document.querySelector<HTMLDetailsElement>('.room-panel');if(panel)panel.open=false;}lastPhase=liveGame.phase;
     const phase=game.phase,scorer=game.lastScorer?PERSONAS[game.lastScorer].name:'';
     el('overlay').hidden=phase==='play'||replaying;
     el('overlay-kicker').textContent=phase==='lobby'?'THE ARENA IS READY':phase==='serve'?'NEXT UP / SERVE':phase==='won'?'THE BETTER ANGLE WINS':'POINT ON THE BOARD';

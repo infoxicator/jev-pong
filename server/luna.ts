@@ -49,7 +49,7 @@ export function createLunaBrain(config: LunaConfig, transport: typeof fetch = fe
       const response = await transport(`${config.baseURL.replace(/\/$/, '')}/decisions`, { method: 'POST', headers: { Authorization: `Bearer ${config.apiKey}`, 'Content-Type': 'application/json' }, body: JSON.stringify(request), signal: AbortSignal.timeout(1500) });
       api={status:response.status,requestId:response.headers.get('x-request-id')??undefined};
       if (!response.ok) {
-        const error=await response.json().catch(()=>null);
+        const error=await response.json().catch(()=>null) as {error?:{message?:string}}|null;
         failures++;
         retryAfterMs=Math.min(60000,1000*2**Math.min(failures,6));
         if(response.status===429){

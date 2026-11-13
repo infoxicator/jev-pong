@@ -1,28 +1,31 @@
+import type { HostedRoom } from './hosting';
 import type { GameState, Side } from './physics';
 import type { ArenaState, ClientMessage, ServerMessage } from './protocol';
-export interface Connection { state:ArenaState|null; side:Side|null; status:string; latency:number; received:number; onReplay:(frames:GameState[])=>void; send:(message:ClientMessage)=>void; close:()=>void }
+export interface Connection { state:ArenaState|null; canReset:boolean; side:Side|null; status:string; latency:number; received:number; onReplay:(frames:GameState[])=>void; send:(message:ClientMessage)=>void; close:()=>void }
 let endpoint:{origin:string;token:string}|null=null;
 /** Only used by the MCP entry point. Ordinary web URLs and same-origin checks are unchanged. */
 export function configureMcpConnection(origin:string,token:string){endpoint={origin,token};}
-export function connect(requested:Side|null):Connection {
+export function connect(requested:Side|null,hosted:HostedRoom|null=null):Connection {
   let ws:WebSocket|null=null,retry=300,closed=false,awaiting=false,lastRequest=0,nextDecisionAt=0;
-  const c:Connection={state:null,side:null,status:'CONNECTING',latency:0,received:0,onReplay:()=>{},send:msg=>{if(ws?.readyState===WebSocket.OPEN)ws.send(JSON.stringify(msg));},close:()=>{closed=true;clearInterval(agentTimer);clearInterval(pingTimer);removeEventListener('pagehide',c.close);ws?.close();}};
+  const c:Connection={state:null,canReset:!hosted,side:null,status:'CONNECTING',latency:0,received:0,onReplay:()=>{},send:msg=>{if(ws?.readyState===WebSocket.OPEN)ws.send(JSON.stringify(msg));},close:()=>{closed=true;clearInterval(agentTimer);clearInterval(pingTimer);removeEventListener('pagehide',c.close);ws?.close();}};
   const open=()=>{
     if(closed)return;
-    const url=new URL('/ws',endpoint?.origin??location.origin);url.protocol=url.protocol==='https:'?'wss:':'ws:';
+    const url=new URL(hosted?`/api/rooms/${hosted.room}/ws`:'/ws',endpoint?.origin??location.origin);url.protocol=url.protocol==='https:'?'wss:':'ws:';
     if(requested)url.searchParams.set('side',requested);if(endpoint)url.searchParams.set('mcp_token',endpoint.token);
     ws=new WebSocket(url);
-    ws.onopen=()=>{c.status='CONNECTED';retry=300;};
+    ws.onopen=()=>{c.status='CONNECTED';retry=300;if(hosted)c.send({type:'join',side:requested,token:hosted.token});};
     ws.onmessage=event=>{
+      if(event.data==='pong'){c.latency=Math.round(performance.now()-lastPing);return;}
       const message=JSON.parse(event.data) as ServerMessage;
-      if(message.type==='joined'){c.side=message.side;c.status=message.reason?'PADDLE TAKEN · SPECTATING':'CONNECTED';}
+      if(message.type==='joined'){c.side=message.side;c.canReset=message.canReset??!hosted;c.status=message.reason?'PADDLE TAKEN · SPECTATING':'CONNECTED';}
       if(message.type==='state'){if(c.state?.matchup!==message.matchup){awaiting=false;lastRequest=0;nextDecisionAt=0;}c.state=message;c.received=performance.now();}
       if(message.type==='pong'){c.latency=Math.round(performance.now()-message.sent);}
       if(message.type==='decision'){awaiting=false;nextDecisionAt=performance.now()+(message.decision.retryAfterMs??0);if(c.side)c.send({type:'intent',sequence:message.decision.sequence,target_y:message.decision.action.target_y});}
+      if(message.type==='decision-cancelled')awaiting=false;
       if(message.type==='cooldown'){awaiting=false;nextDecisionAt=performance.now()+message.retryAfterMs;}
       if(message.type==='replay')c.onReplay(message.frames);
     };
-    ws.onclose=()=>{c.status='RECONNECTING';c.side=null;awaiting=false;nextDecisionAt=0;if(!closed){setTimeout(open,retry);retry=Math.min(3000,retry*1.5);}};
+    ws.onclose=event=>{if(event.reason.includes('expired'))closed=true;c.status=closed?'DISCONNECTED':'RECONNECTING';c.side=null;awaiting=false;nextDecisionAt=0;if(!closed){setTimeout(open,retry);retry=Math.min(3000,retry*1.5);}};
     ws.onerror=()=>ws?.close();
   };
   open();
@@ -32,7 +35,8 @@ export function connect(requested:Side|null):Connection {
       awaiting=true;lastRequest=performance.now();c.send({type:'decide'});
     }
   },200);
-  const pingTimer=setInterval(()=>c.send({type:'ping',sent:performance.now()}),1000);
+  let lastPing=0;
+  const pingTimer=setInterval(()=>{lastPing=performance.now();if(hosted){if(ws?.readyState===WebSocket.OPEN)ws.send('ping');}else c.send({type:'ping',sent:lastPing});},1000);
   addEventListener('pagehide',c.close,{once:true});
   return c;
 }

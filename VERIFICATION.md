@@ -130,3 +130,39 @@ Commands used Node 24.14.0 through `env PATH=/Users/ruben.casas@postman.com/.nvm
 The MCP protocol test confirms text fallback, UI resource linkage/MIME, no external script references, inline fonts, no provider keys/endpoints in the bundle, and rejected untrusted HTTP/WebSocket origins. Playwright also verifies replay, fullscreen, Luna selection shared with the web view, stop/start, preserving an already-claimed web player seat, and teardown disconnecting only MCP-owned controllers. No browser errors were observed. The first MCP test checked paddle movement too early; replaced the immediate assertion with a bounded wait for actual motion and reran the full suite successfully. A later test-only addition waits for both embedded scoreboard values before recording the scored screenshot; `npm run test:mcp` passed again with score 0:1, best rally 17 and 2,161 frames.
 
 The shared browser preview was opened at `http://localhost:5198/?autoplay=1`. Its snapshot showed a completed MCP initialize/tool-input/tool-result handshake, the rendered neon canvas inside the sandbox, mock controllers and a connected WebSocket view, with no console errors. Local screenshot: `artifacts/mcp-app-scored.png` (ignored). Verification used real protocol/network/browser/physics; AI provider decisions were mocked and no paid provider requests were made for this milestone. This verifies the included local MCP Apps host, not registration inside a third-party desktop client or remote hosted connector. No deployment, push or publication was performed.
+
+
+## 2026-11-13: Cloudflare-hosted MCP App
+
+Integrated the previously deployed Workers/Durable Object room implementation into this repository, retaining the local Node web and MCP app. Added a Web-standard stateless Streamable HTTP `/mcp` adapter using the real MCP 2.x server transport. The Worker serves the bundled MCP HTML resource. Each hosted tool invocation creates an isolated mock-only Durable Object room; owner/seat/sandbox capabilities are supplied privately in `_meta`, with no provider keys in the resource or model-visible result. Public web rooms remain mock-only, with private live room creation separately gated by the existing administrator secret. Room expiry is 15 minutes, private paid calls have a durable 1,200-attempt budget, and disconnect/stop/teardown pauses physics so idle sockets may hibernate. Real provider secrets were not uploaded or used for this deployment verification.
+
+Deployed URL: https://jev-vs-jev-pong.mcp-ui-flows-nanobanana.workers.dev
+MCP endpoint: https://jev-vs-jev-pong.mcp-ui-flows-nanobanana.workers.dev/mcp
+Worker version: `7e8c600c-fa66-42eb-ab8b-ab73a6c23e10`.
+
+Commands used Node 24.14.0 through `env PATH=/Users/ruben.casas@postman.com/.nvm/versions/node/v24.14.0/bin:$PATH`. Wrangler testing used `WRANGLER_LOG_PATH=/tmp/jev-pong-wrangler.log WRANGLER_SEND_METRICS=false`; deployment unset the stale `CLOUDFLARE_API_TOKEN` override and used existing browser OAuth. Tests use mock brains or local HTTP fixtures, never the local file’s real credentials.
+
+| Exact command (after environment prefixes) | Result |
+| --- | --- |
+| `npm run verify` | PASS: three production builds + Node/Worker typechecks; 11 Vitest tests; Jev and Luna HTTP fixtures; quota integration; both scored three-context web scenarios; sandboxed local MCP integration |
+| `npm run build` | PASS after final hosted UI changes: web, single-file MCP UI, local SDK host; strict Node/Worker typechecks |
+| `npm run typecheck` | PASS, including new hosted e2e test sources |
+| `node --import tsx scripts/verify-clock.ts` | PASS: irregular Workers scheduling preserves 120 Hz, catch-up capped to 30 steps; invalid/malformed/oversized room options rejected |
+| `npm run test:worker` | PASS: 7 tests, 1 explicitly opt-in full-match test skipped; 2.3 minutes. SDK/Luna success and failure fixtures in workerd, scored web/MCP games, room/seat isolation, replay, pause/reconnect, durable budget, checkpoint recovery and layout |
+| `npm run test:mcp` | PASS again with final shared UI: scored 1:0, best rally 24, 2,989 state frames; real SDK protocol, sandbox, web synchronization, replay/fullscreen/mode switch, seat preservation and teardown |
+| `npx wrangler deploy --dry-run --outdir /tmp/jev-pong-worker-bundle` | PASS: bundles Worker, 23 assets, DO/rate-limit/assets bindings; no upload |
+| `npx wrangler deploy` | PASS: deployed existing Worker, 51 ms startup, 1,251.36 KiB upload / 222.04 KiB gzip, version above |
+| `curl --fail --silent --show-error https://jev-vs-jev-pong.mcp-ui-flows-nanobanana.workers.dev/health` | PASS: HTTP 200, cloudflare-workers, 120 Hz physics, 30 Hz snapshots, publicMode mock |
+| `curl --silent --show-error -o /dev/null -w 'web HTTP %{http_code}\n' https://jev-vs-jev-pong.mcp-ui-flows-nanobanana.workers.dev/` | PASS: web HTTP 200 |
+
+The first Workers regression run caught a laptop-height overflow because the room launch links stayed expanded during play. Restored the hosted panel’s auto-collapse on leaving the lobby, then reran all enabled Workers tests successfully. Restricted-sandbox server binds initially failed; the successful test runs used authorized local socket access. Port 8787 belongs to a different workspace’s application and was left untouched; these Workers tests use 8797 and sandbox host ports 5398/5399.
+
+Public deployment verification command:
+
+```sh
+LIVE_URL=https://jev-vs-jev-pong.mcp-ui-flows-nanobanana.workers.dev npm run test:worker -- e2e-worker/mcp.spec.ts e2e-worker/hosted.spec.ts --grep 'public MCP|Cloudflare room:'
+```
+
+PASS: both tests, 1.1 minutes. The real public web app completed a scored three-context match (1:0), measured 121.2 Hz physics, and verified pause/reconnect/reset permissions and layout. The real HTTPS MCP endpoint initialized and exposed both tools and its self-contained UI resource. The sandboxed SDK AppBridge app connected over public WSS, scored 0:1 with 120 accepted intents per player and 2,298 frames, shared its score with a separate web spectator, and passed replay, fullscreen, Jev/Luna switching, invalid capability rejection, isolated room checks and teardown. Hosted mode was mock and the room's paid-call counter stayed exactly zero. Screenshot: `worker-test-results/mcp-public-MCP-on-Workers-d-*/cloudflare-mcp-app.png` (ignored test artifact).
+
+Temporary browser contexts and all local Pong/Workers/MCP test servers shut down after verification. The hosted test rooms paused with both player seats offline; the expiry alarm later removes them. The README records how to add the public `/mcp` URL in ChatGPT with no authentication. Registration/rendering inside the user's ChatGPT account was not performed; the deployed protocol and app were verified using the real MCP SDK/Apps host. No Git push was performed.

@@ -4,9 +4,9 @@ import { readFile } from 'node:fs/promises';
 import { resolve,extname } from 'node:path';
 import { spawn } from 'node:child_process';
 const gamePort=Number(process.env.PORT??5177),hostPort=Number(process.env.MCP_HOST_PORT??gamePort+1),sandboxPort=hostPort+1;
-const origin=`http://127.0.0.1:${gamePort}`,hostOrigin=`http://127.0.0.1:${hostPort}`,sandboxOrigin=`http://127.0.0.1:${sandboxPort}`;
+const origin=process.env.MCP_SERVER_URL?new URL(process.env.MCP_SERVER_URL).origin:`http://127.0.0.1:${gamePort}`,hostOrigin=`http://127.0.0.1:${hostPort}`,sandboxOrigin=`http://127.0.0.1:${sandboxPort}`;
 let game:ReturnType<typeof spawn>|undefined;
-if(process.argv.includes('--start-game')){
+if(process.argv.includes('--start-game')&&!process.env.MCP_SERVER_URL){
   if(await fetch(`${origin}/health`).then(()=>true).catch(()=>false))throw new Error(`Port ${gamePort} is occupied; choose another PORT or use npm run mcp:host to connect to it.`);
   // The MCP preview defaults to mock; JEV_MOCK=0 explicitly enables configured live providers.
   game=spawn(process.execPath,['--import','tsx','server/index.ts','--production'],{stdio:'inherit',env:{...process.env,PORT:String(gamePort),JEV_MOCK:process.env.JEV_MOCK??'1'}});
@@ -14,7 +14,7 @@ if(process.argv.includes('--start-game')){
 const root=resolve('dist/mcp-host');
 function serve(sandbox:boolean){return createServer(async(req,res)=>{
   const url=new URL(req.url??'/',sandbox?sandboxOrigin:hostOrigin);
-  if(!sandbox&&url.pathname==='/config'){res.setHeader('Content-Type','application/json');res.end(JSON.stringify({endpoint:`${origin}/mcp`,sandboxOrigin}));return;}
+  if(!sandbox&&url.pathname==='/config'){res.setHeader('Content-Type','application/json');res.end(JSON.stringify({endpoint:process.env.MCP_SERVER_URL??`${origin}/mcp`,sandboxOrigin}));return;}
   if(sandbox){
     let csp:{connectDomains?:unknown}={};try{csp=JSON.parse(url.searchParams.get('csp')??'{}');}catch{}
     const connections=Array.isArray(csp.connectDomains)?csp.connectDomains.filter(x=>x===origin.replace('http','ws')):[];

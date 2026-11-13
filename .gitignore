@@ -9,3 +9,8 @@ artifacts/
 .DS_Store
 __test__/__screenshots__/
 .vitest-attachments/
+
+.wrangler/
+.dev.vars*
+worker-test-results/
+worker-dist/

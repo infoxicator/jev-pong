@@ -24,9 +24,54 @@ Use one hostname consistently. A player view owns one paddle. Opening an occupie
 
 Choose a different port with `PORT=5178 npm run demo`. The launcher refuses an occupied port. Dev HMR uses the game port plus 1000. Production: `npm run build && npm start` serves the built client from the same Node server.
 
-## MCP App
+## Cloudflare and ChatGPT
 
-The existing web URLs and three-window demo continue to work. Each game server now also exposes **Streamable HTTP at `/mcp`**. MCP and web views on the same game port share one authoritative arena.
+Deployed web app: **https://jev-vs-jev-pong.mcp-ui-flows-nanobanana.workers.dev**
+
+MCP endpoint: **https://jev-vs-jev-pong.mcp-ui-flows-nanobanana.workers.dev/mcp**
+
+In ChatGPT, open **Plugins → + → Add custom MCP server** (or the equivalent custom app/connector entry available to your account), enter the MCP endpoint, choose **no authentication**, and create/install the connection. In a new chat, select Jev Pong and ask **“Open Pong and start both AI players.”** The `open_pong` tool renders the arena; click **Start AI players** if it opens paused. Custom MCP connections must be available/enabled on your account. See [OpenAI’s connection guide](https://developers.openai.com/plugins/deploy/connect-chatgpt).
+
+**Public hosted games always use mock brains**, including Jev vs Luna. Testing ChatGPT does not use your provider keys or AI tokens. Every hosted `open_pong({autoplay?, matchup?})` creates a separate 15-minute room. `pong_status({room})` reads that MCP room without starting agents. The plain web app creates its own room and provides Vector, Chaos and spectator links in **YOUR PRIVATE MATCH LINKS**. Keep both player windows open, or use the MCP app’s two built-in controllers. A missing player pauses physics. Closing/stopping the MCP app disconnects its controllers; an idle room has no active physics interval and can hibernate. A room expires after 15 minutes.
+
+The Worker serves Vite assets and stateless Streamable HTTP MCP. One SQLite-backed Durable Object per room owns fixed-step physics, score, WebSockets, replay and capability authorization. Native browser WebSockets consume 30 Hz snapshots with 80 ms interpolation. MCP views use a per-room capability for sandbox-origin connections and separate owner/seat credentials; these are delivered in tool-result `_meta`, not model-visible content. Public spectator links contain no seat credentials. Room creation is rate-limited. No provider keys enter the browser or the MCP resource.
+
+```mermaid
+flowchart LR
+  C[ChatGPT / MCP Apps host] <-->|HTTPS /mcp| W[Cloudflare Worker]
+  W -->|tools + bundled HTML resource| C
+  C <-->|App SDK postMessage| A[Sandboxed Pong app]
+  B[Left / Right / Spectator web windows] <-->|HTTPS assets| W
+  A <-->|WSS + room capability| D[Durable Object per room]
+  B <-->|WSS + seat credentials| D
+  W -->|create room / read status| D
+  D --> S[Durable checkpoints + expiry alarm]
+  D --> M[Public mock brains]
+  D -->|private live rooms only| P[Server-side Jev / Luna providers]
+```
+
+To deploy a change using a Cloudflare account with Workers/Durable Objects permissions:
+
+```sh
+npx wrangler login
+npm run deploy
+```
+
+The checked-in `wrangler.jsonc` targets the existing `jev-vs-jev-pong` Worker and account; adjust its account/name for your own deployment. Secrets are **not** loaded from `.env.local` on Cloudflare. To enable owner-created private live rooms, configure Worker secrets with `npx wrangler secret put ROOM_CREATE_TOKEN`, `TYPESAFE_API_KEY` (direct Jev), and optionally `OPENAI_API_KEY` (Luna); `JEV_PROVIDER=typesafe` can be a Worker variable. Never share the room-creation token. Create a live room by POSTing `/api/rooms` with a same-origin `Origin` header and `Authorization: Bearer <ROOM_CREATE_TOKEN>`; returned fragment links are private owner/seat capabilities. Without that authorization, room creation always forces mocks even if provider secrets exist. MCP tools always create mocks. Private live rooms have a durable 1,200 paid-attempt budget and respect provider cooldowns. This is capability access, not email/Cloudflare Access identity authentication.
+
+To reproduce hosted verification:
+
+```sh
+npm run test:clock
+npm run test:worker # temporary local workerd + sandbox host; stops when tests finish
+LIVE_URL=https://jev-vs-jev-pong.mcp-ui-flows-nanobanana.workers.dev npm run test:worker -- e2e-worker/mcp.spec.ts
+```
+
+The hosted MCP test uses a real SDK client and SDK AppBridge host: HTTPS discovery/calls/resource read, sandboxed UI, authenticated WSS, scoring, spectator synchronization, replay, fullscreen, mode switching and teardown. This validates the deployed server and app protocol; installation inside your ChatGPT account remains a manual step. It does not start a persistent local demo.
+
+## Local MCP App
+
+The existing web URLs and three-window demo continue to work. Each local game server also exposes **Streamable HTTP at `/mcp`**. Local MCP and web views on the same game port share one authoritative arena; Cloudflare uses separate rooms as described above.
 
 ```sh
 npm run demo:mcp
@@ -36,7 +81,7 @@ Open **http://127.0.0.1:5178/** and click **Start AI players**. The local host c
 
 If port 5177 is already running another game, use `PORT=5197 npm run demo:mcp`; then the MCP endpoint is **http://127.0.0.1:5197/mcp**, host **http://127.0.0.1:5198/** and sandbox port 5199. Different game ports create separate matches. `MCP_HOST_PORT` overrides the host port, with its sandbox on the following port.
 
-To attach the local host to an already-running updated game, first run `npm run build` and `npm start`, then `npm run mcp:host` in another terminal. In another MCP client, add the game's `/mcp` URL as a **Streamable HTTP** server and call **`open_pong`**. Local loopback URLs require a host that can reach this machine. An MCP Apps host renders the game; a text-only client receives its score and spectator link. Verified here with the real MCP SDK client and included Apps SDK host; remote hosted clients would require separate HTTPS hosting and authentication.
+To attach the local host to an already-running updated game, first run `npm run build` and `npm start`, then `npm run mcp:host` in another terminal. In another MCP client, add the game's `/mcp` URL as a **Streamable HTTP** server and call **`open_pong`**. Local loopback URLs require a host that can reach this machine. An MCP Apps host renders the game; a text-only client receives its score and spectator link. Verified with the real MCP SDK client and included Apps SDK host. For remote clients such as ChatGPT, use the deployed HTTPS endpoint above.
 
 - **`open_pong({ autoplay?: boolean })`** opens the arena, read-only by default. `autoplay: true` connects one controller per empty seat when the UI mounts. Existing web players retain their seats.
 - **`pong_status({})`** reads authoritative score, connectivity, accepted intents and latest decision metadata, without making provider calls.
@@ -140,7 +185,7 @@ JEV_MOCK=0
 
 Restart the server after editing. `JEV_MOCK=1` always forces mock mode. Without any key, mock mode is automatic. `JEV_MOCK=0` fails startup if a real key for the selected provider is missing. If multiple keys exist, direct TypeSafe takes precedence, then OpenRouter, then AI Gateway; `JEV_PROVIDER` overrides this choice. Provider model IDs can be changed with `JEV_MODEL`.
 
-Keys load only in Node from the ignored `.env.local` file; never use a `VITE_` prefix. The browser never imports the SDK, receives credentials, or calls a provider. Each joined player triggers its own server-side `TypeSafeClient` proxy. Requests use the server's current state, not a client-supplied snapshot. Requests stop in the lobby and at match end; there is at most one in flight per player. Real mode makes paid provider calls, up to five calls per second per player when responses are fast enough.
+Locally, keys load only in Node from the ignored `.env.local` file; on Cloudflare, use Worker secrets; never use a `VITE_` prefix. The browser never imports the SDK, receives credentials, or calls a provider. Each joined player triggers its own server-side `TypeSafeClient` proxy. Requests use the server's current state, not a client-supplied snapshot. Requests stop in the lobby and at match end; there is at most one in flight per player. Real mode makes paid provider calls, up to five calls per second per player when responses are fast enough.
 
 ## The real SDK API
 
@@ -194,7 +239,7 @@ flowchart LR
 
 Physics has no clock, randomness, I/O, or AI calls: `step(state)` always advances exactly 1/120 second. A monotonic accumulator runs it on the server, caps catch-up after long stalls, and pauses the match when a seat is empty. Intents are validated against the latest server-issued decision sequence, consumed once, clamped to the court, and followed with proportional smoothing and a maximum paddle speed. Stale intents recover toward center. Clients only render buffered authoritative snapshots; they never integrate ball physics or decide scores.
 
-The server stores up to eight seconds of 30 Hz frames for highlights. This local demo has one in-memory match, binds to loopback, checks WebSocket Origin, and limits message size/rate. Reloading the server clears match history. No database, deployment, or publication is involved.
+The server stores up to eight seconds of 30 Hz frames for highlights. This local demo has one in-memory match, binds to loopback, checks WebSocket Origin, and limits message size/rate. Reloading the server clears match history. The hosted variant uses the Durable Object storage and deployment described above.
 
 ## What's mocked
 
@@ -220,4 +265,4 @@ PORT=5178 JEV_MOCK=1 npm run demo:smoke
 
 Unit coverage: deterministic stepping, lobby/serve, wall and paddle collisions, rally acceleration, scoring once, win condition, target bounds, reflected intercept prediction, reproducible noise, valid actions, persona taunts. See `VERIFICATION.md` for recorded commands and outcomes.
 
-Local milestone commits: M1 physics and canvas; M2 Jev and mock brains; M3 authoritative network play; M4 recording polish, launcher, docs and final verification. No remote is configured; no push or publish was performed.
+Local milestone commits: M1 physics and canvas; M2 Jev and mock brains; M3 authoritative network play; M4 recording polish, launcher, docs and final verification. Only local Git commits are used; source is never pushed. The built app is deployed to the authorized Cloudflare Worker.

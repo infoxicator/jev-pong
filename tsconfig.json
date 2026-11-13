@@ -23,6 +23,7 @@
     "__test__",
     "e2e",
     "*.ts",
-    "scripts"
+    "scripts",
+    "e2e-worker"
   ]
 }
