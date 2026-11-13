@@ -24,6 +24,32 @@ Use one hostname consistently. A player view owns one paddle. Opening an occupie
 
 Choose a different port with `PORT=5178 npm run demo`. The launcher refuses an occupied port. Dev HMR uses the game port plus 1000. Production: `npm run build && npm start` serves the built client from the same Node server.
 
+## Jev versus Luna mode
+
+The original **Jev vs Jev** matchup remains the default. Choose **Jev vs Luna** in the arena to run Jev on the left and **GPT-6 Luna through OpenAI Decisions** on the right. Mode changes start a fresh match and are broadcast to every connected window; refreshing a player keeps the server-selected matchup.
+
+To open the three windows with Luna already selected:
+
+```sh
+npm run demo:luna
+```
+
+Or set `PONG_MATCHUP=jev-vs-luna` when starting `npm run dev` or `npm start`. Add this server-side credential to the ignored `.env.local` file to enable real Luna decisions:
+
+```dotenv
+OPENAI_API_KEY=your-openai-api-key
+# Optional: fail startup/mode activation if the OpenAI key is missing.
+LUNA_MOCK=0
+```
+
+Configure a real Jev provider as described below to run both sides live. Each side independently defaults to a mock if its own key is absent; the header shows **LIVE + MOCK** for a mixed configuration. `LUNA_MOCK=1` mocks only Luna. `JEV_MOCK=1` forces both players to use mocks, even if keys are configured. Each decision card identifies the actual model and whether its action was live, mocked, or a fallback. A mock Luna match exercises the wiring and presentation; it does not evaluate Luna's ability.
+
+`server/luna.ts` uses Web-standard `fetch` to call **`POST https://api.openai.com/v1/decisions`** with the model pinned to **`gpt-6-luna`**. This uses the Decisions endpoint, not Responses or chat completions. It sends a user message with text rules and an `input_json` game snapshot. Three typed `choice` questions ask for the same 17 target lanes, movement directions, and persona taunts used by Jev. Both sides receive the same geometric intercept hint and have the same 200 ms scheduling and paddle-speed limits. The action controller still follows `target_y`; `move` is informational.
+
+OpenAI returns a named `answers` array. The adapter validates each expected choice, refuses unknown lanes/models, and treats refusals, missing/duplicate answers, invalid confidence, HTTP errors, or a 1500 ms timeout as a **Luna-labeled heuristic fallback**. There are no automatic retries. Keys and provider HTTP requests stay on the server. The browser receives safe player metadata and actions only.
+
+Source checked for this implementation: [official OpenAI Decisions guide](https://developers.openai.com/api/docs/guides/decisions) and [create-decision API reference](https://developers.openai.com/api/reference/resources/decisions/methods/create). `npm run test:luna` exercises the real HTTP adapter against local contract fixtures; no paid OpenAI call is needed. `npm run verify` now includes this test and a second three-context Playwright scenario that scores a Jev-vs-Luna point in mock mode, checks model labels across views, switches back to Jev-vs-Jev, and tests reset/reconnect/layout.
+
 ## Recording for X
 
 Record the spectator window at 1440×1080 or 1920×1080; maximize that window after the three seats connect. The layout also fits a 1280×800 laptop and narrow player windows. Click **Title card**, start recording, then **Start fresh match**. The title card resets the score as it closes. Alternatively use `/?spectate&intro`.
@@ -119,12 +145,13 @@ With no key (or `JEV_MOCK=1`), **both AI calls** are replaced by an explicitly l
 npx playwright install chromium
 npm run build          # strict TypeScript check + Vite production build
 npm test               # Vitest in real headless Chromium
-npm run test:provider  # actual SDK over local HTTP: success, 429, malformed, timeout
+npm run test:provider  # actual Jev SDK over local HTTP: success, 429, malformed, timeout
+npm run test:luna      # OpenAI Decisions HTTP contract, refusal/errors/timeout, per-side config
 npm run test:e2e       # production server + three separate browser contexts
 PORT=5178 JEV_MOCK=1 npm run demo:smoke
 ```
 
-`npm run verify` runs build, unit tests, provider adapter tests, and e2e in sequence. The e2e starts and stops its own server on 5187 with `JEV_MOCK=1`, opens left/right/spectator in separate contexts, observes actual WebSocket frames and sent agent intents, checks ball/paddle movement, waits for a point, exercises replay, disconnects and reconnects a player, preserves score, reloads a seat, opens the title card, resets the match, and checks a 480px layout for horizontal overflow. Screenshots are saved under ignored `test-results/`. `demo:smoke` launches the real launcher in headless mode and checks both player connections and visible mock decisions.
+`npm run verify` runs build, unit tests, both provider adapter tests, and e2e in sequence. The e2e starts and stops its own server on 5187 with `JEV_MOCK=1`, opens left/right/spectator in separate contexts, observes actual WebSocket frames and sent agent intents, checks ball/paddle movement, waits for a point, exercises replay, disconnects and reconnects a player, preserves score, reloads a seat, opens the title card, resets the match, and checks a 480px layout for horizontal overflow. Screenshots are saved under ignored `test-results/`. `demo:smoke` launches the real launcher in headless mode and checks both player connections and visible mock decisions.
 
 Unit coverage: deterministic stepping, lobby/serve, wall and paddle collisions, rally acceleration, scoring once, win condition, target bounds, reflected intercept prediction, reproducible noise, valid actions, persona taunts. See `VERIFICATION.md` for recorded commands and outcomes.
 

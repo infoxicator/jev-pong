@@ -10,7 +10,7 @@ export function connect(requested:Side|null):Connection {
     ws.onmessage=event=>{
       const message=JSON.parse(event.data) as ServerMessage;
       if(message.type==='joined'){c.side=message.side;c.status=message.reason?'PADDLE TAKEN · SPECTATING':'CONNECTED';}
-      if(message.type==='state'){c.state=message;c.received=performance.now();}
+      if(message.type==='state'){if(c.state?.matchup!==message.matchup){awaiting=false;lastRequest=0;}c.state=message;c.received=performance.now();}
       if(message.type==='pong'){c.latency=Math.round(performance.now()-message.sent);}
       if(message.type==='decision'){awaiting=false;if(c.side)c.send({type:'intent',sequence:message.decision.sequence,target_y:message.decision.action.target_y});}
       if(message.type==='replay')c.onReplay(message.frames);

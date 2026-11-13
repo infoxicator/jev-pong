@@ -16,7 +16,9 @@
     "demo": "node scripts/demo.mjs",
     "test:provider": "tsx scripts/verify-provider.ts",
     "demo:smoke": "node scripts/demo.mjs --smoke",
-    "verify": "npm run build && npm test && npm run test:provider && npm run test:e2e"
+    "verify": "npm run build && npm test && npm run test:provider && npm run test:luna && npm run test:e2e",
+    "demo:luna": "node scripts/demo.mjs --matchup=jev-vs-luna",
+    "test:luna": "tsx scripts/verify-luna.ts"
   },
   "devDependencies": {
     "@playwright/test": "^1.56.1",

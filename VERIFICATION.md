@@ -66,3 +66,28 @@ npm run demo
 ```
 
 From a new checkout: Node 22+, `npm ci`, then the command above. No key is needed. See README.md and .env.local.example to enable real Jev decisions.
+
+## 2026-11-13: Jev versus Luna mode
+
+Added a selectable `jev-vs-luna` matchup while preserving `jev-vs-jev`. The server selects one authoritative matchup for all windows; mode changes reset score, replay, and pending decision generations. The right player calls OpenAI's documented `POST /v1/decisions` with `gpt-6-luna`; the left player keeps the official Jev SDK. UI model names, header, title card, and provider attribution update together. Credentials remain server-side, and each player can independently be live or mocked.
+
+Verification commands used Node 24.14.0, with the same explicit PATH selection described above:
+
+| Command | Result |
+| --- | --- |
+| `npm run build` | PASS: strict TypeScript and Vite production build, including new server adapters and verification script |
+| `npm test` | PASS: 11 tests across 3 files in Chromium, including matchup validation and side assignment |
+| `npm run test:provider` | PASS: original Jev SDK success and error/timeout checks preserved |
+| `npm run test:luna` | PASS: real local HTTP request to `/v1/decisions`, pinned model, JSON state, three choice questions, named-answer decoding, per-side real/mock configuration; success plus 9 failure cases |
+| `npm run test:e2e` | PASS: 2 scenarios in 48.8 seconds, each opening left/right/spectator in separate browser contexts |
+| `PORT=5188 npm run demo:luna -- --smoke` | PASS: launcher selected Jev-vs-Luna, opened three independent sessions, both players connected, visible mock decisions, phase play |
+
+The final original-mode scenario observed 689 authoritative snapshots and 112/91 player intent messages, scored 1:0 after a 12-hit rally, and passed replay/reconnect/reset/laptop checks. The Luna scenario scored 0:1 after a 17-hit rally, verified both engine labels and the `gpt-6-luna` model across all views, checked both accepted agent intents, refreshed a player without changing mode, checked the Luna title card, switched back to Jev-vs-Jev with a clean score, switched again while decisions could be in flight, and passed a 480px overflow check. No browser errors were reported.
+
+Luna HTTP failure cases: 429, 503, invalid lane, refusal, missing answer, duplicate answer, invalid confidence, wrong response model, and timeout. Every case produced an explicitly Luna-labeled heuristic fallback with exactly one HTTP attempt; the timeout completed in approximately 1502 ms. Real/mock metadata tests confirmed no credentials are included in public player metadata. A scan of built JavaScript found no OpenAI/Jev key variable names, provider API URL, fixture credential, or TypeSafeClient.
+
+The first expanded e2e run exposed an existing replay timing edge: a WebSocket replay response can arrive after the current animation frame's timestamp, producing a negative replay index. Clamping that index to zero fixed the crash; both final e2e scenarios passed afterward. The mode selector query was also restricted to buttons so the body's diagnostic matchup attribute does not receive button ARIA state.
+
+Screenshots under the ignored `test-results/arena-Jev-versus-Luna-is-s-f71f8-t-and-switches-back-cleanly/` folder were inspected at full and narrow widths. No paid OpenAI or Jev call was made. Real model access requires a server-side `OPENAI_API_KEY` for Luna and a supported provider key for Jev; without keys, both sides are clearly marked as mock. The Cloudflare deployment thread is integrating this local commit into its separate adapter and owns its Workers-runtime and deployment verification.
+
+Run the new matchup with `npm run demo:luna`, or choose **Jev vs Luna** in the existing arena. Set `PONG_MATCHUP=jev-vs-luna` for server startup selection. See README.md and .env.local.example for keys and per-player mock settings.
