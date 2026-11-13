@@ -150,6 +150,14 @@ export class GameRoom extends DurableObject<Env> {
       return json({...this.links(url.origin,url.searchParams.get('room')!),...(this.saved.mcpToken?{mcpToken:this.saved.mcpToken}:{})},201);
     }
     if(!this.saved||Date.now()>=this.saved.expiresAt)return json({error:'Room missing or expired. Create a new match.'},410);
+    if(path==='/mcp-join'){
+      if(!this.saved.mcpToken||this.saved.real||req.method!=='POST')return json({error:'MCP mock room required'},403);
+      const input=await req.json() as {side?:string;credential?:string};
+      if((input.side!=='left'&&input.side!=='right')||input.credential!==this.saved.tokens[input.side])return json({error:'Invalid player invitation'},403);
+      const all=this.links(url.origin,url.searchParams.get('room')!);
+      // Joiners receive only their own seat, never owner or opponent credentials.
+      return json({mcpToken:this.saved.mcpToken,links:{...all,owner:'',left:input.side==='left'?all.left:'',right:input.side==='right'?all.right:''}});
+    }
     if(path==='/mcp-status')return this.saved.mcpToken&&!this.saved.real?json({...this.state(),timerActive:!!this.timer,calls:this.saved.calls,expiresAt:this.saved.expiresAt}):json({error:'MCP room required'},403);
     const room=path.split('/')[3];
     if(path.endsWith('/info'))return json({room,expiresAt:this.saved.expiresAt});

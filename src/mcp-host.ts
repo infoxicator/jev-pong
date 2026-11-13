@@ -25,7 +25,7 @@ try{
   await bridge.connect(new PostMessageTransport(frame.contentWindow!,frame.contentWindow!));
   await bridge.sendSandboxResourceReady({html:content.text,csp:ui?.csp});await initialized;
   // The local host opens read-only. Starting the two agents requires an explicit UI click.
-  const args={autoplay:new URLSearchParams(location.search).get('autoplay')==='1'};
+  const params=new URLSearchParams(location.search),args={autoplay:params.get('autoplay')==='1',...(params.has('player')?{player:params.get('player')}:{}),...(params.has('invite')?{invite:params.get('invite')}:{} )};
   bridge.sendToolInput({arguments:args});await bridge.sendToolResult(await client.callTool({name:'open_pong',arguments:args}));
   status.textContent='Connected · Streamable HTTP · open_pong';diagnostic.hidden=true;close.disabled=false;document.body.dataset.mcpConnected='true';
   close.onclick=async()=>{await bridge!.teardownResource({});await bridge!.close();await client.close();frame.remove();close.disabled=true;status.textContent='App closed · controllers disconnected';document.body.dataset.mcpConnected='false';};

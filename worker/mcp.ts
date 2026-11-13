@@ -4,29 +4,41 @@ import { z } from 'zod';
 import type { Env } from './index';
 import type { RoomLinks } from '../src/host-types';
 const RESOURCE='ui://jev-pong/arena.html';
-/** Stateless HTTPS MCP; every app gets an isolated, mock-only Durable Object room. */
+/** Stateless HTTPS MCP; create an isolated mock room or join its invited seat across hosts. */
 export async function handleMcp(req:Request,env:Env):Promise<Response>{
   const origin=new URL(req.url).origin;
   const cors={'Access-Control-Allow-Origin':'*','Access-Control-Allow-Headers':'Content-Type, MCP-Protocol-Version, MCP-Session-Id, Last-Event-ID','Access-Control-Allow-Methods':'POST, GET, DELETE, OPTIONS','Access-Control-Expose-Headers':'MCP-Session-Id'};
   if(req.method==='OPTIONS')return new Response(null,{status:204,headers:cors});
   if(req.method!=='POST')return new Response('Use Streamable HTTP POST',{status:405,headers:{...cors,Allow:'POST, OPTIONS'}});
-  const server=new McpServer({name:'Jev Pong',version:'1.1.0'});
+  const server=new McpServer({name:'Jev Pong',version:'1.2.0'});
   registerAppTool(server,'open_pong',{
-    title:'Open Jev Pong',description:'Open an interactive Pong arena in its own private room. Public hosted brains are always simulated: no paid AI API calls. Set autoplay=true to connect both mock AI players, or click Start AI players in the app. Room expires after 15 minutes.',
-    inputSchema:z.object({autoplay:z.boolean().default(false),matchup:z.enum(['jev-vs-jev','jev-vs-luna']).default('jev-vs-jev')}),
+    title:'Open Jev Pong',description:'Create or join an interactive Pong game. To play across ChatGPT and Claude, create with player=left and autoplay=true, then copy the right-player invitation from the app into the other host. Join an existing game by passing its exact pong: invitation as invite; never create a new room when an invitation was supplied. player=both runs both controllers in one view (default); spectator starts none. Public brains are mocked, no paid API calls; rooms expire after 15 minutes.',
+    inputSchema:z.object({autoplay:z.boolean().default(false),matchup:z.enum(['jev-vs-jev','jev-vs-luna']).default('jev-vs-jev'),player:z.enum(['left','right','both','spectator']).default('both'),invite:z.string().max(200).optional()}),
     annotations:{readOnlyHint:false,destructiveHint:false,openWorldHint:false},_meta:{ui:{resourceUri:RESOURCE}},
-  },async({autoplay,matchup})=>{
-    const limit=await env.ROOM_CREATION.limit({key:req.headers.get('CF-Connecting-IP')??'mcp-local'});
-    if(!limit.success)return {isError:true,content:[{type:'text',text:'Room creation limit reached. Try again in a minute.'}]};
-    const room=crypto.randomUUID(),stub=env.ROOMS.get(env.ROOMS.idFromName(room));
-    const response=await stub.fetch(new Request(`${origin}/init?room=${room}`,{method:'POST',headers:{'X-Matchup':matchup,'X-Real-Room':'false','X-MCP-Room':'true'}}));
-    if(!response.ok)throw new Error('Unable to create Pong room');
-    const {mcpToken,...links}=await response.json() as RoomLinks&{mcpToken:string};
-    const state=await (await stub.fetch(new Request(`${origin}/mcp-status`))).json() as {players:unknown};
-    return {content:[{type:'text',text:`Mock ${matchup} arena opened. Room ${room}. Spectator: ${links.spectator}. ${autoplay?'Both AI players will start.':'Click Start AI players to begin.'}`}],
-      structuredContent:{origin,autoplay,matchup,room,spectatorURL:links.spectator,players:state.players},
-      // These room capabilities are delivered only to the UI, never to model-visible content.
-      _meta:{connection:{origin,token:mcpToken,hosted:{room,token:new URLSearchParams(new URL(links.owner).hash.slice(1)).get('token'),links}}}};
+  },async({autoplay,matchup,player,invite})=>{
+    let room:string,mcpToken:string,links:RoomLinks,joined=false;
+    if(invite){
+      const parsed=/^pong:([a-f0-9-]{36}):(left|right):([a-f0-9-]{36})$/.exec(invite.trim());
+      if(!parsed)return {isError:true,content:[{type:'text',text:'Invalid Pong invitation. Copy the exact pong: code from the first app.'}]};
+      room=parsed[1];const side=parsed[2] as 'left'|'right';
+      if(player!=='both'&&player!==side)return {isError:true,content:[{type:'text',text:`This invitation is for the ${side} player only.`}]};
+      const response=await env.ROOMS.get(env.ROOMS.idFromName(room)).fetch(new Request(`${origin}/mcp-join?room=${room}`,{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({side,credential:parsed[3]})}));
+      if(!response.ok)return {isError:true,content:[{type:'text',text:'Invitation invalid or room expired. Ask the first player for a fresh invitation.'}]};
+      ({mcpToken,links}=await response.json() as {mcpToken:string;links:RoomLinks});player=side;joined=true;
+    }else{
+      const limit=await env.ROOM_CREATION.limit({key:req.headers.get('CF-Connecting-IP')??'mcp-local'});
+      if(!limit.success)return {isError:true,content:[{type:'text',text:'Room creation limit reached. Try again in a minute.'}]};
+      room=crypto.randomUUID();
+      const response=await env.ROOMS.get(env.ROOMS.idFromName(room)).fetch(new Request(`${origin}/init?room=${room}`,{method:'POST',headers:{'X-Matchup':matchup,'X-Real-Room':'false','X-MCP-Room':'true'}}));
+      if(!response.ok)throw new Error('Unable to create Pong room');
+      const created=await response.json() as RoomLinks&{mcpToken:string};({mcpToken,...links}=created);
+    }
+    const state=await (await env.ROOMS.get(env.ROOMS.idFromName(room)).fetch(new Request(`${origin}/mcp-status`))).json() as {players:unknown;matchup:string};
+    const other=player==='right'?'left':'right';
+    const invitation=!joined&&player!=='spectator'?`pong:${room}:${other}:${new URLSearchParams(new URL(links[other]).hash.slice(1)).get('token')}`:undefined;
+    return {content:[{type:'text',text:`Mock ${state.matchup} arena ${joined?'joined':'opened'}. Room ${room}. This app controls: ${player}. Spectator: ${links.spectator}. ${autoplay&&player!=='spectator'?'Your player controller(s) will start.':'Use Start in the app to begin.'} ${invitation?'Copy the other-player invitation from the app to join this same room in another MCP host.':''}`}],
+      structuredContent:{origin,autoplay,matchup:state.matchup,room,player,spectatorURL:links.spectator,players:state.players},
+      _meta:{invitation,inviteSide:other,connection:{origin,token:mcpToken,hosted:{room,token:links.owner?new URLSearchParams(new URL(links.owner).hash.slice(1)).get('token'):'',links}}}};
   });
   server.registerTool('pong_status',{
     title:'Pong match status',description:'Read score, tick, decisions and connectivity for a public mock room opened with open_pong. Does not start agents or call providers.',

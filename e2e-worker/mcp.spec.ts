@@ -51,3 +51,44 @@ test('public MCP on Workers: discovery, private capabilities, sandbox UI, shared
     console.log(`Workers MCP PASS: ${frames.length} frames, score ${state.game.score.left}:${state.game.score.right}, ${state.intents.left}/${state.intents.right} intents; isolated rooms, sandbox auth, mock-only/no paid calls, web sync, replay/fullscreen/matchup/teardown.`);
   }finally{await Promise.all(contexts.map(c=>c.close()));await client.close();}
 });
+
+test('two independent MCP apps share an invited room with one player each and a browser spectator',async({browser,baseURL},info)=>{
+  const client=new Client({name:'Split-host verification',version:'1.0.0'});
+  const contexts=await Promise.all([browser.newContext(),browser.newContext(),browser.newContext()]);
+  try{
+    await client.connect(new StreamableHTTPClientTransport(new URL('/mcp',baseURL)));
+    const [left,right,watch]=await Promise.all(contexts.map(c=>c.newPage())),errors:string[]=[],frames:ArenaState[]=[];
+    let room='';const sent={left:0,right:0,watch:0};
+    for(const [page,role] of [[left,'left'],[right,'right'],[watch,'watch']] as const){
+      page.on('pageerror',e=>errors.push(e.message));
+      page.on('websocket',ws=>{
+        if(role==='left')room=new URL(ws.url()).pathname.split('/')[3];
+        ws.on('framesent',({payload})=>{if(String(payload)==='ping')return;const m=JSON.parse(String(payload));if(m.type==='intent')sent[role]++;});
+        if(role==='watch')ws.on('framereceived',({payload})=>{if(String(payload)==='pong')return;const m=JSON.parse(String(payload));if(m.type==='state')frames.push(m);});
+      });
+    }
+    const embedded=(page:typeof left)=>page.frameLocator('#app-frame').frameLocator('iframe[title="Jev Pong MCP App"]');
+    await left.goto('http://127.0.0.1:5398/?player=left&autoplay=1');const l=embedded(left);
+    await expect(l.getByRole('button',{name:'Stop left AI player'})).toBeVisible();
+    await expect(l.locator('#left-online')).toHaveText('ONLINE');await expect(l.locator('#right-online')).toHaveText('OFFLINE');
+    await expect(l.locator('body')).toHaveAttribute('data-phase','lobby');
+    const invite=await l.getByRole('textbox',{name:'Player invitation'}).inputValue();expect(invite).toMatch(/^pong:.*:right:/);
+    const bad=await client.callTool({name:'open_pong',arguments:{invite:invite.slice(0,-1)+(invite.endsWith('0')?'1':'0')}});expect(bad.isError).toBe(true);
+    const wrong=await client.callTool({name:'open_pong',arguments:{invite,player:'left'}});expect(wrong.isError).toBe(true);
+    const join=await client.callTool({name:'open_pong',arguments:{invite}});expect(join.isError).toBeUndefined();
+    const conn=join._meta!.connection as {hosted:HostedRoom};expect(conn.hosted.room).toBe(room);expect(conn.hosted.token).toBe('');expect(conn.hosted.links!.owner).toBe('');expect(conn.hosted.links!.left).toBe('');expect(conn.hosted.links!.right).toContain('#token=');
+    expect(JSON.stringify(join.structuredContent)).not.toContain('token');
+    await watch.goto(conn.hosted.links!.spectator);await expect(watch.locator('#reset')).toBeDisabled();
+    await right.goto(`http://127.0.0.1:5398/?autoplay=1&invite=${encodeURIComponent(invite)}`);const r=embedded(right);
+    await expect(r.getByRole('button',{name:'Stop right AI player'})).toBeVisible();await expect(r.locator('#reset')).toBeDisabled();
+    for(const app of [l,r]){await expect(app.locator('#left-online')).toHaveText('ONLINE');await expect(app.locator('#right-online')).toHaveText('ONLINE');}
+    await expect.poll(()=>frames.some(s=>s.game.phase==='play'&&Math.abs(s.game.ball.x-500)>80)).toBe(true);
+    await expect.poll(()=>sent.left>4&&sent.right>4).toBe(true);expect(sent.watch).toBe(0);
+    await expect.poll(()=>frames.some(s=>s.game.pointId>0),{timeout:90_000}).toBe(true);
+    const point=frames.find(s=>s.game.pointId>0)!;for(const app of [l,r]){await expect(app.locator('#score-left')).toHaveText(String(point.game.score.left));await expect(app.locator('#score-right')).toHaveText(String(point.game.score.right));}
+    await watch.screenshot({path:info.outputPath('split-host-spectator.png'),fullPage:true});
+    await right.getByRole('button',{name:'Close app'}).click();await expect(watch.locator('#right-online')).toHaveText('OFFLINE');await expect(watch.locator('#left-online')).toHaveText('ONLINE');await expect(watch.locator('body')).toHaveAttribute('data-phase','lobby');
+    const state=await client.callTool({name:'pong_status',arguments:{room}});expect((state.structuredContent as {timerActive:boolean;calls:number}).timerActive).toBe(false);expect((state.structuredContent as {calls:number}).calls).toBe(0);
+    expect(errors).toEqual([]);console.log(`SPLIT HOST PASS: one room, independent left/right MCP controllers, browser spectator, score ${point.game.score.left}:${point.game.score.right}, intents ${sent.left}/${sent.right}, zero spectator intents/paid calls, restricted invitation and independent teardown.`);
+  }finally{await Promise.all(contexts.map(c=>c.close()));await client.close();}
+});

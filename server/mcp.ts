@@ -21,13 +21,13 @@ export function createPongMcp(origin:string,getState:()=>ArenaState){
     const server=new McpServer({name:'Jev Pong',version:'1.0.0'});
     registerAppTool(server,'open_pong',{
       title:'Open Jev Pong',description:'Open the live Jev Pong arena. Read-only by default. Autoplay fills empty AI player seats and may use paid providers configured on the server. Existing web players keep their seats.',
-      inputSchema:z.object({autoplay:z.boolean().default(false)}),
+      inputSchema:z.object({autoplay:z.boolean().default(false),player:z.enum(['left','right','both','spectator']).default('both')}),
       annotations:{readOnlyHint:false,destructiveHint:false,openWorldHint:false},
       _meta:{ui:{resourceUri:PONG_RESOURCE}},
-    },async({autoplay})=>{
+    },async({autoplay,player})=>{
       const s=getState();
       return {content:[{type:'text',text:`${s.matchup}: ${s.game.score.left}:${s.game.score.right}. Web spectator: ${origin}/?spectate. ${autoplay?'The app will connect AI controllers to empty seats.':'Use Start AI players in the app, or open the two web player windows.'}`}],
-        structuredContent:{origin,autoplay,matchup:s.matchup,players:s.players},
+        structuredContent:{origin,autoplay,player,matchup:s.matchup,players:s.players},
         _meta:{connection:{origin,token:mintToken()}}};
     });
     server.registerTool('pong_status',{

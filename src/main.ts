@@ -36,7 +36,7 @@ if(hosted){
   for(const a of document.querySelectorAll<HTMLAnchorElement>('[data-seat],#lobby-links a')){
     const seat=a.dataset.seat??(a.textContent?.includes('Vector')?'left':'right');
     if(seat==='spectator')a.href=`/?room=${hosted.room}&spectate`;
-    else if(hosted.links)a.href=hosted.links[seat as 'left'|'right'];
+    else if(hosted.links?.[seat as 'left'|'right'])a.href=hosted.links[seat as 'left'|'right'];
     else if(seat===side)a.href=location.href;else a.hidden=true;
   }
 }

@@ -42,13 +42,14 @@ export function connect(requested:Side|null,hosted:HostedRoom|null=null):Connect
 }
 /** Buffered interpolation uses arrival times, avoiding assumptions about client/server clocks. */
 export function createInterpolator() {
-  const frames:{time:number;game:GameState}[]=[];let lastTick=-1;
+  const frames:{time:number;game:GameState}[]=[];let lastTick=-1,lastGame:GameState|null=null;
   return (state:ArenaState,received:number,now:number):GameState=>{
-    if(state.game.tick!==lastTick){if(state.game.tick<lastTick)frames.length=0;frames.push({time:received,game:state.game});lastTick=state.game.tick;if(frames.length>12)frames.shift();}
+    if(state.game!==lastGame){if(state.game.tick<lastTick)frames.length=0;frames.push({time:received,game:state.game});lastTick=state.game.tick;lastGame=state.game;if(frames.length>12)frames.shift();}
     const target=now-80;
     while(frames.length>2&&frames[1].time<target)frames.shift();
     const a=frames[0],b=frames[1];
-    if(!b||a.game.phase!==b.game.phase||a.game.pointId!==b.game.pointId)return a.game;
+    if(!b)return a.game;
+    if(a.game.phase!==b.game.phase||a.game.pointId!==b.game.pointId)return target<b.time?a.game:b.game;
     const t=Math.max(0,Math.min(1,(target-a.time)/Math.max(1,b.time-a.time)));
     const lerp=(x:number,y:number)=>x+(y-x)*t;
     return {...b.game,ball:{...b.game.ball,x:lerp(a.game.ball.x,b.game.ball.x),y:lerp(a.game.ball.y,b.game.ball.y)},paddles:{left:lerp(a.game.paddles.left,b.game.paddles.left),right:lerp(a.game.paddles.right,b.game.paddles.right)}};

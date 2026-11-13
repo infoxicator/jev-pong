@@ -166,3 +166,23 @@ LIVE_URL=https://jev-vs-jev-pong.mcp-ui-flows-nanobanana.workers.dev npm run tes
 PASS: both tests, 1.1 minutes. The real public web app completed a scored three-context match (1:0), measured 121.2 Hz physics, and verified pause/reconnect/reset permissions and layout. The real HTTPS MCP endpoint initialized and exposed both tools and its self-contained UI resource. The sandboxed SDK AppBridge app connected over public WSS, scored 0:1 with 120 accepted intents per player and 2,298 frames, shared its score with a separate web spectator, and passed replay, fullscreen, Jev/Luna switching, invalid capability rejection, isolated room checks and teardown. Hosted mode was mock and the room's paid-call counter stayed exactly zero. Screenshot: `worker-test-results/mcp-public-MCP-on-Workers-d-*/cloudflare-mcp-app.png` (ignored test artifact).
 
 Temporary browser contexts and all local Pong/Workers/MCP test servers shut down after verification. The hosted test rooms paused with both player seats offline; the expiry alarm later removes them. The README records how to add the public `/mcp` URL in ChatGPT with no authentication. Registration/rendering inside the user's ChatGPT account was not performed; the deployed protocol and app were verified using the real MCP SDK/Apps host. No Git push was performed.
+
+## 2026-11-13: One player per MCP host, shared-room invitations
+
+Added `player: left|right|both|spectator` to the hosted and local `open_pong` tools. Hosted `invite` input joins a specific existing room and seat; it never grants owner/opponent credentials. The first app shows a copyable other-player invitation privately from tool-result `_meta`. The second app receives only its own seat link and cannot reset or change the matchup. Existing both-player mode, standalone web and public spectator links continue working. Public decisions remain mocked and the paid-call counter stays zero. README includes ChatGPT → Claude → browser instructions and connector-refresh guidance.
+
+The new split-host Playwright test uses two independent real MCP SDK/AppBridge browser contexts plus a normal browser spectator. It checks left-only lobby/start, right-seat invitation joining, bad credentials and wrong-side rejection, shared room/score, independent intents, zero spectator intents, denied owner controls, and teardown leaving the other player connected while physics pauses. It does not automate registration in real ChatGPT/Claude accounts.
+
+The first split-host run uncovered a real interpolation bug: pausing immediately after scoring could change phase without advancing the physics tick, leaving the browser stuck on the point overlay. Interpolation now accepts new snapshots even at the same tick and switches across phase/point boundaries once their buffered arrival time passes. Two focused unit regressions cover same-tick pause, normal interpolation and reset.
+
+Commands used the same Node 24 environment prefix as above:
+
+| Command | Result |
+| --- | --- |
+| `npm run build` | PASS: strict Node/Worker typechecks and all three production bundles |
+| `npm run verify` | PASS: 13 unit tests, Jev/Luna provider fixtures, quota integration, both scored three-context web e2e cases (48.5s), and local MCP integration (score 1:0, rally 12, 1,784 frames) |
+| `npm run test:worker -- e2e-worker/mcp.spec.ts` | PASS: both original and split-host MCP scenarios, 1.5m; split match 1:0, 253 intents per player, zero paid calls, independent teardown |
+| `npx wrangler deploy` | PASS: Worker version `f0dfd995-0cfd-453a-bd83-0c6ecaa44a42`, same public endpoint, 52ms startup |
+| `LIVE_URL=https://jev-vs-jev-pong.mcp-ui-flows-nanobanana.workers.dev npm run test:worker -- e2e-worker/mcp.spec.ts --grep 'two independent'` | PASS against deployment: 28.2s; same room across two MCP apps and browser spectator, score 0:1, 115 accepted intents per player, zero spectator intents/paid calls; invitation restrictions and independent teardown |
+
+All test contexts and temporary local servers were closed after the public test. Local Git commit only; no push. The same `/mcp` URL now advertises the new inputs; refresh existing host connections before starting a new split-host match.

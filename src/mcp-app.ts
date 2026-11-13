@@ -5,11 +5,16 @@ import type { HostedRoom } from './hosting';
 import { mountArena } from './main';
 const app=new App({name:'Jev Pong',version:'1.0.0'}),status=document.getElementById('mcp-status')!;
 const play=document.getElementById('mcp-play') as HTMLButtonElement,expand=document.getElementById('mcp-fullscreen') as HTMLButtonElement,web=document.getElementById('mcp-web') as HTMLButtonElement;
-let hosted:HostedRoom|null=null;
+let hosted:HostedRoom|null=null,player:'left'|'right'|'both'|'spectator'='both';
+const sharing=document.getElementById('mcp-sharing')!,invitation=document.getElementById('mcp-invite') as HTMLInputElement;
 let controllers:Connection[]=[],autoplay=false,visible=true,origin='',disposed=false,disposeArena:(()=>void)|undefined,displayMode:'inline'|'fullscreen'='inline';
 document.documentElement.dataset.mcpApp='true';
 function stopPlayers(){controllers.forEach(c=>c.close());controllers=[];}
-function syncPlayers(){stopPlayers();if(autoplay&&visible&&!disposed)controllers=(['left','right'] as const).map(side=>connect(side,hosted?{...hosted,token:new URLSearchParams(new URL(hosted.links![side]).hash.slice(1)).get('token')!}:null));play.textContent=autoplay?'Stop AI players':'Start AI players';}
+function syncPlayers(){
+  stopPlayers();const sides=player==='both'?['left','right'] as const:player==='spectator'?[]:[player];
+  if(autoplay&&visible&&!disposed)controllers=sides.map(side=>connect(side,hosted?{...hosted,token:new URLSearchParams(new URL(hosted.links![side]).hash.slice(1)).get('token')!}:null));
+  play.hidden=player==='spectator';play.textContent=player==='both'?(autoplay?'Stop AI players':'Start AI players'):`${autoplay?'Stop':'Start'} ${player} AI player`;
+}
 function hostContext(ctx:McpUiHostContext){
   if(ctx.theme)applyDocumentTheme(ctx.theme);if(ctx.styles?.variables)applyHostStyleVariables(ctx.styles.variables);if(ctx.styles?.css?.fonts)applyHostFonts(ctx.styles.css.fonts);
   if(ctx.safeAreaInsets){const {top,right,bottom,left}=ctx.safeAreaInsets;document.body.style.padding=`${top}px ${right}px ${bottom}px ${left}px`;}
@@ -31,10 +36,11 @@ app.ontoolresult=async result=>{
     origin=url.origin;configureMcpConnection(origin,connection.token);
     if(hosted?.room!==connection.hosted?.room){stopPlayers();disposeArena?.();disposeArena=undefined;}
     hosted=connection.hosted??null;disposeArena??=mountArena(hosted);
-    const data=result.structuredContent as {autoplay?:boolean;players?:Record<string,{mock:boolean}>}|undefined;
-    autoplay=data?.autoplay===true;syncPlayers();play.disabled=false;web.disabled=false;
+    const data=result.structuredContent as {player?:typeof player;autoplay?:boolean;players?:Record<string,{mock:boolean}>}|undefined;
+    player=data?.player??'both';autoplay=data?.autoplay===true;syncPlayers();
+    invitation.value=typeof result._meta?.invitation==='string'?result._meta.invitation:'';sharing.hidden=!invitation.value;document.getElementById('mcp-invite-side')!.textContent=String(result._meta?.inviteSide??'other');play.disabled=false;web.disabled=false;
     const mock=data?.players&&Object.values(data.players).every(p=>p.mock);
-    status.textContent=`MCP connected · ${mock?'mock brains':'configured providers'} · shared web arena`;
+    status.textContent=`${player==='both'?'Both players':player==='spectator'?'Spectator':`${player.toUpperCase()} player`} · MCP connected · ${mock?'mock brains':'configured providers'} · shared web arena`;
     play.title=mock?'Connect mock controllers to empty seats.':'Connect controllers to empty seats. Configured providers may incur API charges.';
     document.documentElement.dataset.mcpReady='true';
     void app.updateModelContext({content:[{type:'text',text:`Jev Pong is displayed. Match decisions and score come from the same authoritative server as ${hosted?.links?.spectator??`${origin}/?spectate`}.${hosted?` Room ID: ${hosted.room}.`:''}`}]});
@@ -42,6 +48,7 @@ app.ontoolresult=async result=>{
 };
 app.onteardown=async()=>{disposed=true;autoplay=false;stopPlayers();observer.disconnect();disposeArena?.();return {};};
 app.onerror=()=>{status.textContent='MCP host connection failed';};
+document.getElementById('mcp-copy')!.onclick=async()=>{invitation.select();try{await navigator.clipboard.writeText(invitation.value);document.getElementById('mcp-copy')!.textContent='Copied';}catch{document.getElementById('mcp-copy')!.textContent='Press ⌘C / Ctrl+C';}};
 play.onclick=()=>{autoplay=!autoplay;syncPlayers();};
 expand.onclick=async()=>{await app.requestDisplayMode({mode:displayMode==='inline'?'fullscreen':'inline'});};
 web.onclick=()=>void app.openLink({url:hosted?.links?.spectator??`${origin}/?spectate`});
