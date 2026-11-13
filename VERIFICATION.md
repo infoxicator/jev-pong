@@ -91,3 +91,11 @@ The first expanded e2e run exposed an existing replay timing edge: a WebSocket r
 Screenshots under the ignored `test-results/arena-Jev-versus-Luna-is-s-f71f8-t-and-switches-back-cleanly/` folder were inspected at full and narrow widths. No paid OpenAI or Jev call was made. Real model access requires a server-side `OPENAI_API_KEY` for Luna and a supported provider key for Jev; without keys, both sides are clearly marked as mock. The Cloudflare deployment thread is integrating this local commit into its separate adapter and owns its Workers-runtime and deployment verification.
 
 Run the new matchup with `npm run demo:luna`, or choose **Jev vs Luna** in the existing arena. Set `PONG_MATCHUP=jev-vs-luna` for server startup selection. See README.md and .env.local.example for keys and per-player mock settings.
+
+## 2026-11-13: Direct TypeSafe Jev keys
+
+Added `JEV_PROVIDER=typesafe` with server-side `TYPESAFE_API_KEY`, the official `https://api.typesafe.ai` endpoint, and the SDK's `jev-latest` default. Direct TypeSafe takes precedence when auto-selecting among configured keys. Explicit provider selection and model overrides remain available. Added a blank key entry to the ignored local environment file without changing existing settings.
+
+`env PATH=/Users/ruben.casas@postman.com/.nvm/versions/node/v24.14.0/bin:$PATH npm run verify` passed: TypeScript/Vite build, 11 unit tests, Jev SDK HTTP fixtures including the exact direct URL and authorization, Luna fixtures including direct-Jev/Luna player metadata, and both three-context scored WebSocket Playwright scenarios (48.3 seconds). The original match scored 1:0 with a 12-hit rally; the Luna match scored 0:1 with a 17-hit rally. A production JavaScript scan confirmed no credential variable names, direct endpoint, fixture key, or TypeSafeClient in browser bundles. No paid provider call was made.
+
+An initial run under the shell's Node 20 was stopped by the sandbox's local socket restriction during the HTTP fixture setup; the complete successful verification used Node 24 with local server access.

@@ -1,14 +1,14 @@
 import { choice, TypeSafeClient, type TypeSafeClientConfig } from '@typesafe-ai/sdk';
 import { H, PADDLE_H, clamp } from '../src/physics';
 import { mockBrain, intercept, PERSONAS, type Action, type Decision, type Snapshot } from '../src/agents';
-export interface ProviderConfig { mock: boolean; provider: 'openrouter'|'vercel'|'mock'; apiKey?: string; baseURL?: string; model: string }
+export interface ProviderConfig { mock: boolean; provider: 'typesafe'|'openrouter'|'vercel'|'mock'; apiKey?: string; baseURL?: string; model: string }
 export function providerConfig(env: NodeJS.ProcessEnv = process.env): ProviderConfig {
-  const provider=env.JEV_PROVIDER ?? (env.OPENROUTER_API_KEY?'openrouter':env.AI_GATEWAY_API_KEY?'vercel':'mock');
-  if (!['openrouter','vercel','mock'].includes(provider)) throw new Error('JEV_PROVIDER must be openrouter, vercel, or mock');
-  const apiKey=provider==='vercel'?env.AI_GATEWAY_API_KEY:env.OPENROUTER_API_KEY;
+  const provider=env.JEV_PROVIDER ?? (env.TYPESAFE_API_KEY?'typesafe':env.OPENROUTER_API_KEY?'openrouter':env.AI_GATEWAY_API_KEY?'vercel':'mock');
+  if (!['typesafe','openrouter','vercel','mock'].includes(provider)) throw new Error('JEV_PROVIDER must be typesafe, openrouter, vercel, or mock');
+  const apiKey=provider==='typesafe'?env.TYPESAFE_API_KEY:provider==='vercel'?env.AI_GATEWAY_API_KEY:provider==='openrouter'?env.OPENROUTER_API_KEY:undefined;
   const mock=env.JEV_MOCK==='1'||provider==='mock'||!apiKey;
-  if(env.JEV_MOCK==='0'&&!apiKey)throw new Error('JEV_MOCK=0 requires an OpenRouter or AI Gateway key');
-  return { mock, provider:mock?'mock':provider as 'openrouter'|'vercel', apiKey, baseURL:provider==='vercel'?'https://ai-gateway.vercel.sh/typesafe':'https://openrouter.ai/api', model:env.JEV_MODEL??(provider==='vercel'?'typesafe-ai/jev':'jev-1.13') };
+  if(env.JEV_MOCK==='0'&&mock)throw new Error('JEV_MOCK=0 requires a key for the selected TypeSafe, OpenRouter, or AI Gateway provider');
+  return { mock, provider:mock?'mock':provider as 'typesafe'|'openrouter'|'vercel', apiKey, baseURL:provider==='typesafe'?'https://api.typesafe.ai':provider==='vercel'?'https://ai-gateway.vercel.sh/typesafe':'https://openrouter.ai/api', model:env.JEV_MODEL??(provider==='typesafe'?'jev-latest':provider==='vercel'?'typesafe-ai/jev':'jev-1.13') };
 }
 export function createBrain(config: ProviderConfig, transport?: TypeSafeClientConfig['fetch']) {
   const client=config.mock?null:new TypeSafeClient({ apiKey:config.apiKey, baseURL:config.baseURL, compression:false, timeout:1500, retry:{maxRetries:0}, logLevel:'off', ...(transport?{fetch:transport}:{}) });

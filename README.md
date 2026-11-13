@@ -61,10 +61,23 @@ Fonts ship locally. There are no external image or font requests and no account 
 ## Add a real Jev key
 
 ```sh
-cp .env.local.example .env.local
+cp -n .env.local.example .env.local
 ```
 
 Edit `.env.local` with **one** provider:
+
+Use your own **TypeSafe Jev key** directly:
+
+```dotenv
+JEV_PROVIDER=typesafe
+TYPESAFE_API_KEY=your-typesafe-key
+JEV_MODEL=jev-latest
+JEV_MOCK=0
+```
+
+This uses the official SDK's direct `https://api.typesafe.ai/v1/systemone` endpoint. No gateway account is needed. The [official TypeSafe SDK](https://github.com/typesafe-ai/typesafe-sdk-js) documents `TYPESAFE_API_KEY` and the `jev-latest` default.
+
+Or use OpenRouter:
 
 ```dotenv
 JEV_PROVIDER=openrouter
@@ -82,7 +95,7 @@ JEV_MODEL=typesafe-ai/jev
 JEV_MOCK=0
 ```
 
-Restart the server after editing. `JEV_MOCK=1` always forces mock mode. Without any key, mock mode is automatic. `JEV_MOCK=0` fails startup if a real key is missing. If both keys exist, OpenRouter wins unless `JEV_PROVIDER` chooses otherwise. Provider model IDs can be changed with `JEV_MODEL`.
+Restart the server after editing. `JEV_MOCK=1` always forces mock mode. Without any key, mock mode is automatic. `JEV_MOCK=0` fails startup if a real key for the selected provider is missing. If multiple keys exist, direct TypeSafe takes precedence, then OpenRouter, then AI Gateway; `JEV_PROVIDER` overrides this choice. Provider model IDs can be changed with `JEV_MODEL`.
 
 Keys load only in Node from the ignored `.env.local` file; never use a `VITE_` prefix. The browser never imports the SDK, receives credentials, or calls a provider. Each joined player triggers its own server-side `TypeSafeClient` proxy. Requests use the server's current state, not a client-supplied snapshot. Requests stop in the lobby and at match end; there is at most one in flight per player. Real mode makes paid provider calls, up to five calls per second per player when responses are fast enough.
 

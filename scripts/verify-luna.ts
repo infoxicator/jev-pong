@@ -40,6 +40,7 @@ try{
   const none=createPlayers({},'jev-vs-luna');assert.equal(none.mode,'mock');assert.equal(none.players.left.engine,'jev');assert.equal(none.players.right.engine,'luna');assert.equal(none.players.right.model,LUNA_MODEL);
   const mixed=createPlayers({OPENAI_API_KEY:'not-sent'},'jev-vs-luna');assert.equal(mixed.mode,'mixed');assert.equal(mixed.players.left.mock,true);assert.equal(mixed.players.right.mock,false);assert(!JSON.stringify(mixed.players).includes('not-sent'));
   const real=createPlayers({OPENAI_API_KEY:'not-sent',OPENROUTER_API_KEY:'also-not-sent'},'jev-vs-luna');assert.equal(real.mode,'live');assert.equal(real.players.left.provider,'openrouter');assert.equal(real.players.right.provider,'openai');
+  const direct=createPlayers({OPENAI_API_KEY:'not-sent',TYPESAFE_API_KEY:'direct-not-sent'},'jev-vs-luna');assert.equal(direct.mode,'live');assert.equal(direct.players.left.provider,'typesafe');assert.equal(direct.players.left.model,'jev-latest');assert.equal(direct.players.right.provider,'openai');assert(!JSON.stringify(direct.players).includes('not-sent'));
   const forced=createPlayers({OPENAI_API_KEY:'not-sent',OPENROUTER_API_KEY:'also-not-sent',JEV_MOCK:'1'},'jev-vs-luna');assert.equal(forced.mode,'mock');
   assert.equal((await forced.brains.right(s,3)).source,'mock');assert.equal((await none.brains.left(snapshot(createGame(),'left'),3)).source,'mock');
   console.log('PASS: independent providers, original Jev mode, no-key and forced mocks, mixed live/mock metadata, no credentials in player metadata.');
