@@ -5,6 +5,7 @@ import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { chromium } from '@playwright/test';
 if(Number(process.versions.node.split('.')[0])<22)throw new Error('Node.js 22+ is required.');
+const view3d=process.argv.includes('--3d');
 const smoke=process.argv.includes('--smoke'),headless=!process.argv.includes('--headed')&&(smoke||process.env.DEMO_HEADLESS==='1');
 const matchupArg=process.argv.find(arg=>arg.startsWith('--matchup='))?.split('=')[1];
 if(matchupArg&&!['jev-vs-jev','jev-vs-luna'].includes(matchupArg))throw new Error('Unknown matchup');
@@ -28,7 +29,7 @@ try{
   for(const [index,seat] of ['left','spectate','right'].entries()){
     const folder=await mkdtemp(join(tmpdir(),'jev-pong-'));folders.push(folder);
     const width=Math.max(410,Math.floor(screenWidth/3)),height=Math.max(720,screenHeight);
-    const url=`${origin}/${seat==='spectate'?'?spectate':`?side=${seat}`}`;
+    const url=`${origin}/${view3d?'arena3d.html':''}${seat==='spectate'?'?spectate':`?side=${seat}`}`;
     const context=await chromium.launchPersistentContext(folder,{headless,viewport:headless?{width:480,height:1000}:null,args:[`--app=${url}`,`--window-size=${width},${height}`,`--window-position=${index*width},0`,'--no-default-browser-check']});contexts.push(context);
     const page=context.pages().find(p=>p.url().startsWith(origin))??context.pages()[0]??await context.newPage();
     if(!page.url().startsWith(url))await page.goto(url);
@@ -37,7 +38,8 @@ try{
     if(index===0&&!headless){const size=await page.evaluate(()=>({width:screen.availWidth,height:screen.availHeight}));screenWidth=size.width;screenHeight=size.height;}
     if(!headless){try{const cdp=await context.newCDPSession(page);const {windowId}=await cdp.send('Browser.getWindowForTarget');await cdp.send('Browser.setWindowBounds',{windowId,bounds:{left:index*Math.floor(screenWidth/3),top:0,width:Math.max(410,Math.floor(screenWidth/3)),height:screenHeight,windowState:'normal'}});await cdp.detach();}catch{console.log(`Opened ${seat}; window positioning is unavailable on this desktop.`);}}
   }
-  console.log('\nThree independent Chromium windows are connected: VECTOR | SPECTATOR | CHAOS.\nRecord the spectator view; use Title card for the intro. Ctrl+C closes everything.\n');
+  if(view3d)console.log(`\n3D ROBOT ARENA\n  Left eyes: ${origin}/arena3d.html?side=left\n  Sideline:  ${origin}/arena3d.html?spectate\n  Right eyes: ${origin}/arena3d.html?side=right\n\nThree independent windows: VECTOR EYES | SIDELINE | CHAOS EYES.\nRecord the sideline view; camera buttons switch perspectives. Ctrl+C closes everything.\n`);
+  else console.log('\nThree independent Chromium windows are connected: VECTOR | SPECTATOR | CHAOS.\nRecord the spectator view; use Title card for the intro. Ctrl+C closes everything.\n');
   if(smoke){
     await pages[1].waitForFunction(()=>document.body.dataset.phase==='play');
     await pages[1].getByText('MOCK / HEURISTIC',{exact:true}).first().waitFor();

@@ -24,6 +24,41 @@ Use one hostname consistently. A player view owns one paddle. Opening an occupie
 
 Choose a different port with `PORT=5178 npm run demo`. The launcher refuses an occupied port. Dev HMR uses the game port plus 1000. Production: `npm run build && npm start` serves the built client from the same Node server.
 
+## Separate 3D robot arena
+
+The original 2D UI is still at `/` with its existing layout and controls. The new presentation is a separate page at **`/arena3d.html`**. It uses the same TypeScript/Vite app, server, agents, native WebSockets and fixed-step game state; Three.js adds only the new WebGL renderer. The 3D page does not load in the original UI.
+
+```sh
+JEV_MOCK=1 npm run demo:3d
+```
+
+This opens three independent windows: Vector’s eye camera, the sideline broadcast camera, and Chaos’s opposite eye camera. Player eye cameras move with their robot; the racket is in the foreground, with the opponent ahead. The sideline camera frames both robots from the side. Spectators can switch between all three cameras without claiming a player seat. Replay, score, latency, rally, live decision cards and reset use the existing network messages.
+
+For manual windows, start `JEV_MOCK=1 npm run dev` and open:
+
+- Left robot eyes: `http://127.0.0.1:5177/arena3d.html?side=left`
+- Right robot eyes: `http://127.0.0.1:5177/arena3d.html?side=right`
+- Sideline spectator: `http://127.0.0.1:5177/arena3d.html?spectate`
+
+The original `/?spectate` can watch the same match alongside the 3D views. `PORT=5277` selects a separate local port. Real brains use the same existing server-side keys: `JEV_MOCK=0 npm run demo:3d`. For Jev versus Luna, append `-- --matchup=jev-vs-luna`. Tests and the development preview force mocks; the renderer itself never calls providers. Hosted 3D links retain the existing room/seat fragment credentials and route to the same Durable Object.
+
+The two robots share an original **Optimus-inspired** humanoid model authored locally in Blender, with pearl alloy shells, a dark visor, mechanical joints, articulated limbs/fingers and a racket. No third-party robot model or paid model generation is used. Sources:
+
+- `assets/3d/robot-studio.blend` — editable Blender source.
+- `scripts/blender/build_robot.py` — reproducible procedural authoring script.
+- `public/models/arena-robot.glb` — self-hosted browser asset (about 1 MB).
+- `src/arena3d/` — scene, PBR lighting/materials, cameras and isolated UI styles.
+
+Rebuild the asset using installed Blender:
+
+```sh
+/Applications/Blender.app/Contents/MacOS/Blender --background --factory-startup --python scripts/blender/build_robot.py -- "$PWD"
+```
+
+The renderer maps server ball/paddle coordinates onto the table; table bounces, limb motion, reflections and shadows are presentation effects. They do not introduce new collisions, modify agent inputs or change scoring. WebGL 2 is required. The separate page reports an error and disconnects its player if the model or renderer cannot load. The original 2D view remains usable independently. The existing MCP App presentation is unchanged.
+
+`npm run demo:3d:smoke` opens all three views headlessly with mocks, then closes them. `npm run test:e2e -- e2e/arena3d.spec.ts` verifies loaded Blender geometry and real WebGL rendering, the opposing eye cameras, both independent intent loops, ball/paddle movement and a scored point, shared 2D/3D score, replay, camera switching, mobile layout and player leave.
+
 ## Cloudflare and ChatGPT
 
 Deployed web app: **https://jev-vs-jev-pong.mcp-ui-flows-nanobanana.workers.dev**

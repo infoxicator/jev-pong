@@ -186,3 +186,25 @@ Commands used the same Node 24 environment prefix as above:
 | `LIVE_URL=https://jev-vs-jev-pong.mcp-ui-flows-nanobanana.workers.dev npm run test:worker -- e2e-worker/mcp.spec.ts --grep 'two independent'` | PASS against deployment: 28.2s; same room across two MCP apps and browser spectator, score 0:1, 115 accepted intents per player, zero spectator intents/paid calls; invitation restrictions and independent teardown |
 
 All test contexts and temporary local servers were closed after the public test. Local Git commit only; no push. The same `/mcp` URL now advertises the new inputs; refresh existing host connections before starting a new split-host match.
+
+## 2026-11-16: Separate 3D humanoid robot presentation
+
+Created an independent `/arena3d.html` entry and isolated `src/arena3d/` UI/renderer. Original 2D presentation is still the default `/`. The new view uses the same `connect()` client, interpolation, agent-intent messages, fixed physics, scoring and server. Added Three.js only to the separate browser renderer. Left/right cameras sit at the corresponding robot's eye position and face the opponent, with the own racket in the foreground; spectators get a side camera showing both robots. Camera selection is presentation-only. Replay, score, rally, latency and decision feed consume the existing state/protocol. No backend changes or deployment were made for this feature.
+
+Built an original Optimus-inspired humanoid locally with installed Blender 5.2.2. The Blender MCP add-on was unavailable, so background factory-scene authoring/export was used without touching an open user scene. Editable source is `assets/3d/robot-studio.blend`; reproducible script is `scripts/blender/build_robot.py`; final `public/models/arena-robot.glb` has 137 objects and 1,037,608 bytes. The racket is attached to the right wrist. No external model downloads or paid generation were used.
+
+A SHA-256 comparison against the start of this 3D task confirmed no changes to `src/main.ts`, `src/style.css`, `src/canvas.ts`, `src/web.ts`, `server/index.ts`, `src/physics.ts`, `src/network.ts`, or `src/mcp-app.ts`. Pre-existing uncommitted invitation changes were left as found and are excluded from the 3D commit. The new CSS is loaded only by the new HTML entry. The original launcher keeps its existing behavior unless `--3d` is supplied.
+
+Commands use Node 24.14.0 via `env PATH=/Users/ruben.casas@postman.com/.nvm/versions/node/v24.14.0/bin:$PATH`.
+
+| Command | Result |
+| --- | --- |
+| `/Applications/Blender.app/Contents/MacOS/Blender --background --factory-startup --python scripts/blender/build_robot.py -- "$PWD"` | PASS: original model, editable `.blend` and browser GLB exported locally |
+| `npm run build` | PASS: strict Node/Worker typechecks, both web entries and existing MCP builds |
+| `npm run verify` | PASS: 17 unit tests, Jev and Luna HTTP fixtures, quota integration, all three web Playwright scenarios, and local MCP integration |
+| `npm run test:e2e` inside verify | PASS: original Jev and Luna scenarios plus real WebGL 3D gameplay, 1.8m total |
+| `PORT=5278 JEV_MOCK=1 npm run demo:3d:smoke` | PASS: three independent launcher contexts opened the new 3D routes; both mock players connected, phase play, visible mock decisions, health OK; test contexts/server closed |
+
+The 3D Playwright scenario loaded the real Blender GLB, asserted WebGL 2 and >10,000 rendered triangles, verified left/right eye-camera assignments and sideline camera, observed two independent WebSocket intent streams, ball/paddle motion, a point scored 0:1 with 69/64 intents, synchronized 3D scoreboards and an original 2D spectator, replay, camera switching, 480px layout and player leave. It ran in mock mode with no paid provider requests. Screenshots under ignored `test-results/arena3d-*/`: `3d-sideline.png`, `3d-left-eyes.png`, `3d-right-eyes.png`, `3d-mobile.png`. Existing MCP integration also passed with score 1:0, best rally 12 and 1,709 state frames.
+
+Visual inspection in the shared browser checked the spectator and robot-eye perspectives. Iteration caught a single-material GLB binding issue before visual approval, then an actual negative replay timestamp under GPU load; both were fixed. The end-to-end test was given a fresh match because the suite's shared server retained a preceding scenario's score. The final complete suite passed. A restricted-sandbox Blender launch failed before authoring; the successful export ran with authorized local application access. The build reports the expected large-chunk notice for the optional Three.js bundle; the original UI does not load that bundle.
