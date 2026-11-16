@@ -307,14 +307,17 @@ npm run build          # strict TypeScript check + Vite production build
 npm test               # Vitest in real headless Chromium
 npm run test:provider  # actual Jev SDK over local HTTP: success, 429, malformed, timeout
 npm run test:luna      # OpenAI Decisions HTTP contract, refusal/errors/timeout, per-side config
+npm run test:brains    # actual Jev/Luna adapters play table tennis against loopback API fixtures
 npm run test:quota     # HTTP + browser loops: pacing and daily-limit cooldown
 npm run test:e2e       # production server + three separate browser contexts
 npm run test:mcp       # real MCP client + sandboxed UI + scored shared match
 PORT=5178 JEV_MOCK=1 npm run demo:smoke
 ```
 
-`npm run verify` runs build, unit tests, both provider adapter tests, quota checks, web e2e and MCP verification in sequence. The e2e starts and stops its own server on 5187 with `JEV_MOCK=1`, opens left/right/spectator in separate contexts, observes actual WebSocket frames and sent agent intents, checks ball/paddle movement, waits for a point, exercises replay, disconnects and reconnects a player, preserves score, reloads a seat, opens the title card, resets the match, and checks a 480px layout for horizontal overflow. Screenshots are saved under ignored `test-results/`. `demo:smoke` launches the real launcher in headless mode and checks both player connections and visible mock decisions.
+`npm run verify` runs build, unit tests, both provider adapter tests, table-tennis adapter gameplay, quota checks, web e2e and MCP verification in sequence. The e2e starts and stops its own server on 5187 with `JEV_MOCK=1`, opens left/right/spectator in separate contexts, observes actual WebSocket frames and sent agent intents, checks ball/paddle movement, waits for a point, exercises replay, disconnects and reconnects a player, preserves score, reloads a seat, opens the title card, resets the match, and checks a 480px layout for horizontal overflow. Screenshots are saved under ignored `test-results/`. `demo:smoke` launches the real launcher in headless mode and checks both player connections and visible mock decisions.
 
 Unit coverage: deterministic stepping, lobby/serve, wall and paddle collisions, rally acceleration, scoring once, win condition, target bounds, reflected intercept prediction, reproducible noise, valid actions, persona taunts. See `VERIFICATION.md` for recorded commands and outcomes.
 
 Local milestone commits: M1 physics and canvas; M2 Jev and mock brains; M3 authoritative network play; M4 recording polish, launcher, docs and final verification. Only local Git commits are used; source is never pushed. The built app is deployed to the authorized Cloudflare Worker.
+
+`npm run test:brains` validates the new table-tennis evidence through the actual Jev SDK and Luna Decisions adapter. Local HTTP fixtures choose a structured lane from the serialized projected intercept; those decoded decisions drive five simulated minutes per matchup, with 83 ms transit and Luna’s default 600 ms cooldown plus a 200 ms polling interval. It checks legal returns by both sides, movement, scoring, and malformed/429 fallbacks. Requests are guarded to one loopback origin, use fake keys, and never load `.env.local`. The 3D Playwright scenario runs both Jev/Jev and Jev/Luna with `JEV_MOCK=1`. These checks establish integration compatibility; they do not measure live model judgment or real-account quota.

@@ -16,7 +16,7 @@
     "demo": "node scripts/demo.mjs",
     "test:provider": "tsx scripts/verify-provider.ts",
     "demo:smoke": "node scripts/demo.mjs --smoke",
-    "verify": "npm run build && npm test && npm run test:provider && npm run test:luna && npm run test:quota && npm run test:e2e && npm run test:mcp",
+    "verify": "npm run build && npm test && npm run test:provider && npm run test:luna && npm run test:quota && npm run test:brains && npm run test:e2e && npm run test:mcp",
     "demo:luna": "node scripts/demo.mjs --matchup=jev-vs-luna",
     "test:luna": "tsx scripts/verify-luna.ts",
     "test:quota": "tsx scripts/verify-quota.ts",
@@ -28,7 +28,8 @@
     "test:worker": "playwright test --config playwright.worker.config.ts",
     "test:clock": "tsx scripts/verify-clock.ts",
     "demo:3d": "node scripts/demo.mjs --3d",
-    "demo:3d:smoke": "node scripts/demo.mjs --3d --smoke"
+    "demo:3d:smoke": "node scripts/demo.mjs --3d --smoke",
+    "test:brains": "tsx scripts/verify-table-tennis-brains.ts"
   },
   "devDependencies": {
     "@cloudflare/workers-types": "^5.20261113.1",
