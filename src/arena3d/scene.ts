@@ -76,10 +76,11 @@ export async function createArena3D(canvas:HTMLCanvasElement){
   const ball=new THREE.Mesh(ballGeo,mat(0xfff4da,.72,0));ball.castShadow=true;scene.add(ball);
   const shadowGeo=new THREE.CircleGeometry(BALL_RADIUS*1.4,24);geometries.push(shadowGeo);const shadowMat=new THREE.MeshBasicMaterial({color:0x050b0a,transparent:true,opacity:.35,depthWrite:false});materials.push(shadowMat);
   const ballShadow=new THREE.Mesh(shadowGeo,shadowMat);ballShadow.rotation.x=-Math.PI/2;ballShadow.position.y=TABLE_TOP+.002;scene.add(ballShadow);
-  // A brief, fading shutter streak, reset at discontinuities and contacts.
-  const trailGeo=new THREE.BufferGeometry(),trailArray=new Float32Array(12*3),trailColors=new Float32Array(12*3);
+  // A visible comet tail that fades behind the ball and clears at contacts/seeks.
+  const trailSamples=24,trailLifetime=.16;
+  const trailGeo=new THREE.BufferGeometry(),trailArray=new Float32Array(trailSamples*3),trailColors=new Float32Array(trailSamples*3);
   trailGeo.setAttribute('position',new THREE.BufferAttribute(trailArray,3));trailGeo.setAttribute('color',new THREE.BufferAttribute(trailColors,3));geometries.push(trailGeo);
-  const trailMat=new THREE.LineBasicMaterial({color:0xffe8bb,transparent:true,opacity:.14,vertexColors:true,depthWrite:false});materials.push(trailMat);const trail=new THREE.Line(trailGeo,trailMat);trail.frustumCulled=false;scene.add(trail);
+  const trailMat=new THREE.LineBasicMaterial({color:0xffe8bb,transparent:true,opacity:.6,vertexColors:true,depthWrite:false,blending:THREE.AdditiveBlending});materials.push(trailMat);const trail=new THREE.Line(trailGeo,trailMat);trail.frustumCulled=false;scene.add(trail);
   let width=0,height=0,lastRally=0,lastPoint=-1,lastTick=-1,disposed=false;
   const trailFrames:{position:THREE.Vector3;time:number}[]=[];
   const camTarget=new THREE.Vector3();
@@ -101,8 +102,8 @@ export async function createArena3D(canvas:HTMLCanvasElement){
       ballShadow.scale.setScalar(1+ballHeight*.45);shadowMat.opacity=.32/(1+ballHeight*2);
       if(lastPoint!==game.pointId||game.phase!=='play'||lastRally!==game.rally||game.tick<lastTick||game.tick-lastTick>30)trailFrames.length=0;
       if(game.phase==='play'&&game.tick!==lastTick)trailFrames.unshift({position:ball.position.clone(),time:t});
-      while(trailFrames.length&&(trailFrames.length>12||t-trailFrames.at(-1)!.time>.055))trailFrames.pop();
-      trailFrames.forEach((f,i)=>{f.position.toArray(trailArray,i*3);const fade=1-(t-f.time)/.055;trailColors.fill(fade,i*3,i*3+3);});
+      while(trailFrames.length&&(trailFrames.length>trailSamples||t-trailFrames.at(-1)!.time>trailLifetime))trailFrames.pop();
+      trailFrames.forEach((f,i)=>{f.position.toArray(trailArray,i*3);const fade=(1-(t-f.time)/trailLifetime)**1.5;trailColors.fill(fade,i*3,i*3+3);});
       trailGeo.attributes.position.needsUpdate=true;trailGeo.attributes.color.needsUpdate=true;
       trailGeo.setDrawRange(0,trailFrames.length);trail.visible=active;
       lastPoint=game.pointId;lastRally=game.rally;lastTick=game.tick;

@@ -260,3 +260,7 @@ Added `npm run test:brains` to the standard verification chain. It exercises the
 The existing 3D Playwright test now runs both matchups, asserts correct engine metadata and mock decision sources, and retains the independent browser/WebSocket intent, scoring, pose, camera, replay and original-UI checks. This establishes compatibility of the new game state with the integrations, not live model quality, account authentication or available quota.
 
 `JEV_MOCK=1 npm run test:e2e -- e2e/arena3d.spec.ts`: PASS, both scenarios, 2.3 minutes. Jev/Jev scored 0:1 with 63/60 player intents; Jev/Luna scored 1:0 with 61/53 intents. Both verified real WebGL/Blender geometry, player movement, authoritative ball height and score, both mock decision sources, original 2D spectator, replay, camera switching, mobile layout and player leave. Test server and browser contexts closed automatically; the existing local demo remains in mock mode. All commands used Node v24.14.0 via the explicit local Node PATH. No real provider calls, deployment or push.
+
+## 2026-11-16: Preserve the comet trail
+
+Kept the 3D ball trail and made it easier to see: 160 ms history, up to 24 samples, brighter additive blending and a smooth fade toward the tail. Existing contact, point, reset and replay-seek clearing remains in place. Presentation-only change. `npm run build` passed, including application and Worker typechecks; no API calls were made.
