@@ -3,7 +3,8 @@ import '@fontsource/space-grotesk/latin-500.css';
 import '@fontsource/space-grotesk/latin-600.css';
 import '@fontsource/space-mono/latin-400.css';
 import './style.css';
-import { connect,createInterpolator } from '../network';
+import { connect } from '../network';
+import { createArenaInterpolator,interpolateGame } from './interpolation';
 import { prepareRoom,type HostedRoom } from '../hosting';
 import { createGame,WIN_SCORE,type GameState,type Side } from '../physics';
 import { PERSONAS } from '../agents';
@@ -48,17 +49,17 @@ try{
   connection=connect(requested,hosted);connection.onReplay=frames=>{if(frames.length){replay=frames;replayStart=performance.now();}};
   el('replay').onclick=()=>{if(replay.length)replay=[];else connection!.send({type:'replay'});};el('reset').onclick=()=>{replay=[];connection!.send({type:'reset'});};
   arena=await createArena3D(document.querySelector('canvas')!);document.body.dataset.assets='ready';
-  const interpolate=createInterpolator();
+  const interpolate=createArenaInterpolator();
   function frame(now:number){
     if(!connection||!arena)return;
     const state=connection.state,game=state?interpolate(state,connection.received,now):createGame();let rendered=game;
-    if(replay.length){const index=Math.max(0,Math.floor((now-replayStart)/1000*30*.65));if(index>=replay.length)replay=[];else rendered=replay[index];}
+    if(replay.length){const position=Math.max(0,(now-replayStart)/1000*30*.65),index=Math.floor(position);if(index>=replay.length)replay=[];else rendered=interpolateGame(replay[index],replay[Math.min(index+1,replay.length-1)],position-index);}
     arena.render(rendered,view,now);
     if(now-lastUI>90){
       lastUI=now;el('score-left').textContent=String(rendered.score.left);el('score-right').textContent=String(rendered.score.right);el('rally').textContent=String(rendered.rally).padStart(2,'0');el('best').textContent=`BEST ${String(game.bestRally).padStart(2,'0')}`;
       el('match-label').textContent=game.phase==='won'?'MATCH COMPLETE':Math.max(game.score.left,game.score.right)===WIN_SCORE-1?'MATCH POINT':`FIRST TO ${WIN_SCORE}`;
       el('network').textContent=`● ${connection.status}`;el('brain-mode').textContent=state?.mode==='mock'?'MOCK BRAINS':state&&Object.values(state.decisions).some(d=>d?.source==='fallback')?'API FALLBACK':state?'LIVE BRAINS':'CONNECTING';
-      el('latency').textContent=`${connection.latency} MS`;el('tick').textContent=`TICK ${String(game.tick).padStart(5,'0')}`;el('seat').textContent=connection.side?`CONTROLLING ${connection.side.toUpperCase()}`:'SPECTATOR';
+      el('latency').textContent=`${connection.latency} MS`;el('tick').textContent=`TICK ${String(Math.round(game.tick)).padStart(5,'0')}`;el('seat').textContent=connection.side?`CONTROLLING ${connection.side.toUpperCase()}`:'SPECTATOR';
       const phase=rendered.phase;el('phase-overlay').hidden=phase==='play'||replay.length>0;el('phase-kicker').textContent=phase==='lobby'?'TWO MINDS. ONE ARENA.':phase==='serve'?'AGENTS READY / NEXT SERVE':phase==='won'?'MATCH COMPLETE':'POINT ON THE BOARD';
       el('phase-title').textContent=phase==='lobby'?'The stage is set.':phase==='serve'?String(Math.max(1,Math.ceil(rendered.countdown))):phase==='won'?`${game.lastScorer==='left'?'Vector':'Chaos'} wins.`:`${game.lastScorer==='left'?'Vector':'Chaos'} scores.`;
       el('phase-detail').textContent=phase==='lobby'?'Connect both player windows. Watch the match from here.':phase==='serve'?'Independent decisions. Shared reality.':phase==='won'?'Rematch starts automatically.':`${rendered.rally} returns. A new angle, a new point.`;el('lobby-actions').hidden=phase!=='lobby';

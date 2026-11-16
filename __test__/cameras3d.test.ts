@@ -11,6 +11,6 @@ it('places opposing player cameras at robot eye height, facing each other',()=>{
 });
 it('shows the full court from the side and maps state without mutating physics',()=>{
   const game=createGame(),before=structuredClone(game),spectator=cameraPose('spectator',game,2.5);
-  expect(spectator.position[2]).toBeGreaterThan(5);expect(spectator.position[1]).toBeGreaterThan(EYE_HEIGHT);
+  expect(Math.hypot(spectator.position[0],spectator.position[2])).toBeGreaterThan(4);expect(spectator.position[1]).toBeGreaterThan(EYE_HEIGHT);
   expect(ballPosition(game)[0]).toBe(0);expect(ballPosition(game)[2]).toBe(0);expect(game).toEqual(before);
 });

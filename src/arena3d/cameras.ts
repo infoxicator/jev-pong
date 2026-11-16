@@ -1,17 +1,30 @@
-import { H,W,INSET,PADDLE_W,type GameState,type Side } from '../physics';
+import { H,W,INSET,PADDLE_W,R,type GameState,type Side } from '../physics';
 export type CameraView=Side|'spectator';
-export const SCALE=.0065,HALF_LENGTH=W*SCALE/2,HALF_WIDTH=H*SCALE/2,EYE_HEIGHT=1.805;
+// A 2.74 m table, with the exact same authoritative Pong coordinates.
+export const SCALE=.00274,HALF_LENGTH=W*SCALE/2,HALF_WIDTH=H*SCALE/2,EYE_HEIGHT=1.78;
+export const TABLE_TOP=.81,BALL_RADIUS=R*SCALE,CONTACT_HEIGHT=1.19,BODY_OFFSET=.30;
 export const lane=(y:number)=>(y-H/2)*SCALE;
 export const strikeX=(side:Side)=>(side==='left'?INSET+PADDLE_W:W-INSET-PADDLE_W)*SCALE-HALF_LENGTH;
-export const robotX=(side:Side)=>strikeX(side)+(side==='left'?-.71:.71);
+export const robotX=(side:Side)=>strikeX(side)+(side==='left'?-.568:.568);
+export const ballContactX=(side:Side)=>strikeX(side)+(side==='left'?BALL_RADIUS:-BALL_RADIUS);
 export function ballPosition(game:GameState):[number,number,number]{
-  const x=game.ball.x*SCALE-HALF_LENGTH,u=Math.min(1,Math.abs(x)/HALF_LENGTH);
-  // A visual table bounce; authoritative collisions and scores stay entirely server-side.
-  const height=u<.48?1.23-(u/.48)*.37:.86+((u-.48)/.52)*.26;
+  const x=game.ball.x*SCALE-HALF_LENGTH,extent=ballContactX('right');
+  const progress=Math.max(0,Math.min(1,(game.ball.vx>=0?x+extent:extent-x)/(extent*2)));
+  // One receiver-side bounce per crossing. Parabolic flight, continuous at both
+  // racket planes, with a deliberate velocity change only at the table bounce.
+  const bounce=.65,floor=TABLE_TOP+BALL_RADIUS,arc=.29;
+  const reboundArc=arc*((1-bounce)/bounce)**2; // Same vertical acceleration on both flight segments.
+  const u=progress<bounce?progress/bounce:(progress-bounce)/(1-bounce);
+  const height=progress<bounce
+    ? CONTACT_HEIGHT*(1-u)+floor*u+4*arc*u*(1-u)
+    : floor*(1-u)+CONTACT_HEIGHT*u+4*reboundArc*u*(1-u);
   return [x,height,lane(game.ball.y)];
 }
 export function cameraPose(view:CameraView,game:GameState,aspect=1.6){
-  if(view==='spectator'){const distance=Math.max(5.5,Math.min(18,10.7/(2*Math.tan(19*Math.PI/180)*aspect)));return {position:[.5,.9+distance*.37,distance*.93] as [number,number,number],target:[0,.9,0] as [number,number,number],fov:38};}
-  const direction=view==='left'?1:-1,z=lane(game.paddles[view])+direction*.40;
-  return {position:[robotX(view)+direction*.025,EYE_HEIGHT,z] as [number,number,number],target:[-direction*1.2,1.08,z*.25] as [number,number,number],fov:72};
+  if(view==='spectator'){
+    const distance=Math.max(4.4,Math.min(14,6.3/(2*Math.tan(19*Math.PI/180)*aspect)));
+    return {position:[distance*.43,1.25+distance*.25,distance*.90] as [number,number,number],target:[0,1.0,0] as [number,number,number],fov:38};
+  }
+  const direction=view==='left'?1:-1,z=lane(game.paddles[view])+direction*BODY_OFFSET;
+  return {position:[robotX(view)+direction*.10,EYE_HEIGHT,z] as [number,number,number],target:[-direction*.5,1.05,z*.20] as [number,number,number],fov:78};
 }

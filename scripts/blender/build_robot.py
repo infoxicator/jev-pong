@@ -19,8 +19,10 @@ steel=material('Brushed titanium',(.25,.29,.32),.86,.24)
 chrome=material('Machined joint edges',(.6,.65,.69),.92,.17)
 visor=material('Obsidian / optical glass',(.008,.013,.022),.68,.12)
 accent=material('Team accent',(.98,.29,.07),.5,.26,1.5)
-rubber=material('Racket rubber',(.055,.065,.07),.05,.67)
-red=material('Racket reverse',(.36,.035,.025),.05,.7)
+rubber=material('Racket rubber',(.009,.012,.014),0,.88)
+wood=material('Laminated maple blade',(.52,.29,.12),0,.53)
+gripwood=material('Walnut flared handle',(.15,.065,.026),0,.48)
+red=material('Racket reverse',(.55,.018,.012),0,.84)
 objects=[]
 
 def parent_keep(obj,parent):
@@ -98,15 +100,16 @@ for sign,label in [(-1,'L'),(1,'R')]:
     box('Shin_armor_'+label,(.135*sign,-.029,.335),(.128,.145,.31),shell,shin,.035)
     box('Shin_insert_'+label,(.135*sign,-.106,.38),(.055,.008,.13),steel,shin,.008)
     rod('Ankle_hydraulic_'+label,(.19*sign,.05,.40),(.19*sign,.04,.16),.018,chrome,shin)
-    ball('Ankle_joint_'+label,ankle,(.065,.067,.065),steel,shin)
-    box('Sole_'+label,(.135*sign,-.075,.049),(.145,.30,.060),black,shin,.025)
-    box('Foot_armor_'+label,(.135*sign,-.078,.09),(.139,.28,.065),shell,shin,.024)
-    for j in range(3):box('Toe_split',(.135*sign,-.18+j*.025,.124),(.115,.005,.004),black,shin,.001)
+    foot=pivot('Ankle_'+label,ankle,shin)
+    ball('Ankle_joint_'+label,ankle,(.065,.067,.065),steel,foot)
+    box('Sole_'+label,(.135*sign,-.075,.049),(.145,.30,.060),black,foot,.025)
+    box('Foot_armor_'+label,(.135*sign,-.078,.09),(.139,.28,.065),shell,foot,.024)
+    for j in range(3):box('Toe_split',(.135*sign,-.18+j*.025,.124),(.115,.005,.004),black,foot,.001)
 # Ready stance. Right hand holds the racket in front of the chest.
 for sign,label in [(-1,'L'),(1,'R')]:
     shoulder=(.29*sign,0,1.47)
     elbow=(.37*sign,-.12,1.13) if label=='R' else (-.37,.015,1.16)
-    wrist=(.40,-.59,.94) if label=='R' else (-.35,-.16,.95)
+    wrist=(.30,-.53,1.035) if label=='R' else (-.35,-.16,.95)
     upper=pivot('UpperArm_'+label,shoulder,robot)
     ball('Shoulder_socket_'+label,shoulder,(.105,.105,.105),steel,upper)
     ball('Shoulder_armor_'+label,(.31*sign,-.012,1.465),(.105,.102,.11),shell,upper)
@@ -120,20 +123,45 @@ for sign,label in [(-1,'L'),(1,'R')]:
     hand=pivot('Wrist_'+label,wrist,forearm)
     if label=='R':right_hand=hand
     ball('Wrist_bearing_'+label,wrist,(.05,.047,.05),steel,hand)
-    box('Palm_'+label,Vector(wrist)+Vector((0,-.055,-.015)),(.092,.105,.055),steel,hand,.015)
-    for finger in range(4):
-        x=wrist[0]+(finger-1.5)*.023
-        for j in range(3):
-            box('Finger_%s_%d_%d'%(label,finger,j),(x,wrist[1]-.09-j*.018,wrist[2]-.04-j*.012),(.018,.027,.025),chrome,hand,.006)
-    rod('Thumb_'+label,Vector(wrist)+Vector((-.055,-.02,0)),Vector(wrist)+Vector((-.055,-.11,-.025)),.018,chrome,hand)
-# Separate named striking head attached to the right wrist. Negative Y is forward.
-tool=pivot('Racket',(.40,-.71,1.055),right_hand)
-rod('Racket_grip',(.40,-.71,.78),(.40,-.71,.99),.027,black,tool)
-for z in [.80+i*.015 for i in range(10)]:cyl('Grip_wrap',(.40,-.71,z),.028,.005,steel,tool)
-rim=cyl('Racket_rim',(.40,-.71,1.12),.25,.032,chrome,tool,(0,1,0));rim.scale.z=1.10
-front=cyl('Racket_face',(.40,-.730,1.12),.239,.009,rubber,tool,(0,1,0));front.scale.z=1.10
-rear=cyl('Racket_reverse',(.40,-.690,1.12),.239,.009,red,tool,(0,1,0));rear.scale.z=1.10
-box('Racket_signature',(.40,-.737,1.04),(.085,.004,.008),accent,tool,.002)
+    if label=='R':
+        box('Palm_R',Vector(wrist)+Vector((0,-.010,.005)),(.066,.040,.076),steel,hand,.012)
+        # Four articulated fingers curl around the handle; the thumb closes above them.
+        for finger in range(4):
+            z=1.019+finger*.017
+            points=[(.334,-.545,z),(.329,-.579,z),(.299,-.585,z),(.278,-.567,z)]
+            for j in range(3):rod('Finger_R_%d_%d'%(finger,j),points[j],points[j+1],.008,chrome,hand)
+        rod('Thumb_R_base',(.265,-.536,1.067),(.270,-.565,1.089),.011,chrome,hand)
+        rod('Thumb_R_tip',(.270,-.565,1.089),(.294,-.578,1.092),.010,chrome,hand)
+    else:
+        box('Palm_'+label,Vector(wrist)+Vector((0,-.055,-.015)),(.092,.105,.055),steel,hand,.015)
+        for finger in range(4):
+            x=wrist[0]+(finger-1.5)*.023
+            for j in range(3):
+                box('Finger_%s_%d_%d'%(label,finger,j),(x,wrist[1]-.09-j*.018,wrist[2]-.04-j*.012),(.018,.027,.025),chrome,hand,.006)
+        rod('Thumb_'+label,Vector(wrist)+Vector((-.055,-.02,0)),Vector(wrist)+Vector((-.055,-.11,-.025)),.018,chrome,hand)
+# Regulation-scale laminated blade: 172 x 192 mm, 6 mm wood + two rubber sheets.
+# Build the ellipse in world X/Z so cylinder local-axis scaling cannot distort its thickness.
+tool=pivot('Racket',(.30,-.56,1.19),right_hand)
+def blade(name,center,rx,rz,depth,mat):
+    x,y,z=center;n=64
+    verts=[(x+rx*math.cos(i*2*math.pi/n),y+d,z+rz*math.sin(i*2*math.pi/n)) for d in [-depth/2,depth/2] for i in range(n)]
+    faces=[tuple(range(n-1,-1,-1)),tuple(range(n,2*n))]
+    faces += [(i,(i+1)%n,(i+1)%n+n,i+n) for i in range(n)]
+    mesh=bpy.data.meshes.new(name);mesh.from_pydata(verts,[],faces);mesh.update()
+    obj=bpy.data.objects.new(name,mesh);bpy.context.collection.objects.link(obj)
+    finish(obj,name,mat,tool,.0006)
+    # Flat rubber faces, smoothly shaded circumference.
+    for poly in obj.data.polygons:poly.use_smooth=poly.index>=2
+    return obj
+blade('Racket_blade',(.30,-.56,1.19),.086,.096,.006,wood)
+blade('Racket_edge_tape',(.30,-.56,1.19),.087,.097,.005,rubber)
+blade('Racket_face',(.30,-.566,1.19),.0845,.0945,.004,red)
+blade('Racket_reverse',(.30,-.554,1.19),.0845,.0945,.004,rubber)
+# Handle ends inside the closed hand, not below it as a floating metal shaft.
+box('Racket_handle',(.30,-.56,1.066),(.029,.026,.110),gripwood,tool,.008)
+box('Racket_handle_inlay',(.30,-.575,1.067),(.009,.002,.083),wood,tool,.001)
+box('Racket_handle_flare',(.30,-.56,1.018),(.035,.028,.018),gripwood,tool,.005)
+pivot('RacketContact',(.30,-.568,1.19),tool)
 # Tiny fasteners and access seams make close eye cameras read as machinery.
 for sign in [-1,1]:
     for z in [1.33,1.52]:cyl('Chest_fastener',(.19*sign,-.178,z),.007,.006,chrome,robot,(0,1,0))

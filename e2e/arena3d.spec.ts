@@ -21,6 +21,18 @@ test('3D eyes and sideline render the same scored WebSocket match while original
       await expect.poll(async()=>Number(await page.locator('canvas').getAttribute('data-triangles'))).toBeGreaterThan(10_000);
       expect(await page.evaluate(()=>document.querySelector('canvas')!.getContext('webgl2')!==null)).toBe(true);
     }
+    // Sample the real loaded rig during the network match, not just a still image.
+    await watch.evaluate(()=>{
+      (window as unknown as {motionErrors:string[]}).motionErrors=[];
+      let frames=0;
+      const sample=()=>{
+        const data=document.querySelector('canvas')!.dataset;
+        const errors=(window as unknown as {motionErrors:string[]}).motionErrors;
+        if(Number(data.contactError)>.006)errors.push(`Unreachable bat: ${data.contactError}`);
+        if(Number(data.ballClearance)<-.0001)errors.push(`Ball below table: ${data.ballClearance}`);
+        if(++frames<2400)requestAnimationFrame(sample);
+      };requestAnimationFrame(sample);
+    });
     await watch.locator('#reset').click();
     await expect.poll(()=>states.at(-1)?.game.pointId===0&&states.at(-1)?.game.score.left===0&&states.at(-1)?.game.score.right===0).toBe(true);
     states.length=0;
@@ -38,6 +50,7 @@ test('3D eyes and sideline render the same scored WebSocket match while original
     await watch.setViewportSize({width:480,height:1000});expect(await watch.evaluate(()=>document.documentElement.scrollWidth<=innerWidth)).toBe(true);
     await watch.screenshot({path:info.outputPath('3d-mobile.png'),fullPage:true});
     await right.close();await expect(watch.locator('#right-online')).not.toHaveClass(/on/);
+    expect(await watch.evaluate(()=>(window as unknown as {motionErrors:string[]}).motionErrors)).toEqual([]);
     expect(errors).toEqual([]);console.log(`3D PASS: Blender GLB + two robots; eye cameras left/right, sideline; score ${scored.game.score.left}:${scored.game.score.right}; ${intents.left}/${intents.right} intents; original 2D shares score; replay/camera/mobile/leave verified.`);
   }finally{await Promise.all(contexts.map(c=>c.close()));}
 });
