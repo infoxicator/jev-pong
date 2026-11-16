@@ -2,6 +2,7 @@ import { handleMcp } from './mcp';
 import { DurableObject } from 'cloudflare:workers';
 import { createPlayers } from '../server/players';
 import { createGame, startServe, step, setIntent, SIDES, WIN_SCORE, type GameState, type Side } from '../src/physics';
+import { tableTennisWon } from '../src/table-tennis';
 import { snapshot, mockBrain, type Decision } from '../src/agents';
 import type { ArenaState, ClientMessage, ServerMessage } from '../src/protocol';
 import { roomOptions, isMatchup, type HostedMatchup } from './room-options';
@@ -99,7 +100,7 @@ export class GameRoom extends DurableObject<Env> {
   private activate(){
     if(!this.saved||this.timer||!this.players.left||!this.players.right)return;
     if(this.game.phase==='lobby'){
-      if(Math.max(this.game.score.left,this.game.score.right)>=WIN_SCORE){this.game.phase='won';this.game.countdown=7;}
+      if(this.game.tt?tableTennisWon(this.game):Math.max(this.game.score.left,this.game.score.right)>=WIN_SCORE){this.game.phase='won';this.game.countdown=7;}
       else{this.game.ball={x:500,y:280,vx:430,vy:148};this.game.rally=0;startServe(this.game);}
     }
     // A seat waiting in a hibernating lobby has no decision traffic. Its lease starts now.
@@ -189,7 +190,9 @@ export class GameRoom extends DurableObject<Env> {
         if(p.joined)return;p.joined=true;p.owner=msg.token===this.saved.tokens.owner;
         const side=msg.side;
         const authorized=(side==='left'||side==='right')&&msg.token===this.saved.tokens[side];
-        const assigned=authorized&&!this.players[side]?side:null;
+        const rules=msg.rules==='table-tennis'?'table-tennis':'pong';
+        if(authorized&&!this.players.left&&!this.players.right&&Boolean(this.game.tt)!==(rules==='table-tennis')){this.game=createGame(rules);this.history=[];this.replay=[];this.generation++;this.checkpoint();}
+        const assigned=authorized&&!this.players[side]&&Boolean(this.game.tt)===(rules==='table-tennis')?side:null;
         if(assigned){p.side=assigned;p.lastDecision=Date.now();this.players[assigned]=ws;this.decisions[assigned]=null;this.intentTicks[assigned]=this.game.tick;this.activate();}
         ws.serializeAttachment(p);
         this.send(ws,{type:'joined',side:assigned,canReset:p.owner,...(side&&!assigned?{reason:authorized?'PADDLE TAKEN · SPECTATING':'PRIVATE SEAT · OWNER LINK REQUIRED'}:{})});this.broadcast();return;
@@ -201,7 +204,7 @@ export class GameRoom extends DurableObject<Env> {
           if(!isMatchup(msg.matchup)){this.send(ws,{type:'error',message:'Unknown matchup'});return;}
           const roster=createPlayers(this.brainEnv(),msg.matchup);this.saved.matchup=msg.matchup;this.rosterCache=roster;
         }
-        this.game=createGame();this.generation++;this.history=[];this.replay=[];this.decisions={left:null,right:null};this.intents={left:0,right:0};this.intentTicks={left:0,right:0};
+        this.game=createGame(this.game.tt?'table-tennis':'pong');this.generation++;this.history=[];this.replay=[];this.decisions={left:null,right:null};this.intents={left:0,right:0};this.intentTicks={left:0,right:0};
         if(this.players.left&&this.players.right)startServe(this.game);
         this.checkpoint();this.broadcast();return;
       }

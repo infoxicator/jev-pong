@@ -23,8 +23,8 @@ export function lunaRequest(s: Snapshot) {
   return {
     model: LUNA_MODEL,
     input: [{ role: 'user' as const, content: [
-      { type: 'input_text' as const, text: `Pong 1000x560; y down; walls y=7,553; paddle height 86, speed 470. You are ${persona.name}: ${persona.subtitle}. Choose paddle center using projected_intercept_y.` },
-      { type: 'input_json' as const, data: { side:s.side, ball:Object.fromEntries(Object.entries(s.ball).map(([k,v])=>[k,Math.round(v*10)/10])), paddle:Math.round(s.paddle), opponent:Math.round(s.opponent), score:s.score, rally:s.rally, projected_intercept_y:Math.round(intercept(s)) } },
+      { type: 'input_text' as const, text: s.tt?`Table tennis 1000x560 projection. No side walls. Reach 38px. Use projected_intercept_y which accounts for gravity and spin. Recover centrally between shots. You are ${persona.name}.`:`Pong 1000x560; y down; walls y=7,553; paddle height 86, speed 470. You are ${persona.name}: ${persona.subtitle}. Choose paddle center using projected_intercept_y.` },
+      { type: 'input_json' as const, data: { ...(s.tt?{height:s.tt.height,spin:s.tt.spin,shot:s.tt.shot}:{}), side:s.side, ball:Object.fromEntries(Object.entries(s.ball).map(([k,v])=>[k,Math.round(v*10)/10])), paddle:Math.round(s.paddle), opponent:Math.round(s.opponent), score:s.score, rally:s.rally, projected_intercept_y:Math.round(intercept(s)) } },
     ] }],
     questions: [
       { type: 'choice' as const, name: 'target', instructions: 'Choose paddle center y.', choices: Array.from({ length: 17 }, (_, i) => ({ value: `lane_${i}`, description: String(Math.round(PADDLE_H / 2 + i * (H - PADDLE_H) / 16)) })) },

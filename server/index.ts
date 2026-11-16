@@ -6,7 +6,7 @@ import { config as loadEnv } from 'dotenv';
 import { WebSocketServer, WebSocket } from 'ws';
 import { createPlayers } from './players';
 import { isMatchup, matchupTitle, type Matchup, type Engine } from '../src/match';
-import { createGame, step, DT, startServe, setIntent, SIDES, type Side, type GameState } from '../src/physics';
+import { createGame, step, DT, startServe, setIntent, SIDES, type Side, type GameState, type Rules } from '../src/physics';
 import { snapshot, type Decision } from '../src/agents';
 import type { ClientMessage, ServerMessage, ArenaState } from '../src/protocol';
 import { createPongMcp, PONG_RESOURCE } from './mcp';
@@ -17,7 +17,8 @@ if(!isMatchup(initialMatchup))throw new Error('PONG_MATCHUP must be jev-vs-jev o
 let matchup:Matchup=initialMatchup,roster=createPlayers(process.env,matchup);
 const port=Number(process.env.PORT??5177), production=process.argv.includes('--production');
 const vite=production?null:await (await import('vite')).createServer({server:{middlewareMode:true,hmr:{port:port+1000,host:'127.0.0.1'}},appType:'spa'});
-let game=createGame(),generation=0;
+const initialRules:Rules=process.env.PONG_RULES==='table-tennis'?'table-tennis':'pong';
+let game=createGame(initialRules),generation=0;
 const players:Record<Side,WebSocket|null>={left:null,right:null};
 const decisions:Record<Side,Decision|null>={left:null,right:null},intents={left:0,right:0},intentTicks={left:0,right:0};
 // Provider cooldown survives player reconnects, new matches, and matchup changes.
@@ -29,7 +30,7 @@ const state=():ArenaState=>({type:'state',game,connected:connected(),serverTime:
 const mcp=createPongMcp(`http://127.0.0.1:${port}`,state);
 const server=createServer(async(req,res)=>{
   if(req.url?.split('?')[0]==='/mcp'){await mcp.handle(req,res);return;}
-  if(req.url==='/health') {res.setHeader('Content-Type','application/json');res.end(JSON.stringify({ok:true,mode:roster.mode,matchup,players:roster.players,tick:game.tick,connected:connected(),physicsHz:120,snapshotHz:30,node:process.versions.node,mcp:{endpoint:'/mcp',resource:PONG_RESOURCE}}));return;}
+  if(req.url==='/health') {res.setHeader('Content-Type','application/json');res.end(JSON.stringify({ok:true,mode:roster.mode,matchup,players:roster.players,rules:game.tt?'table-tennis':'pong',tick:game.tick,connected:connected(),physicsHz:120,snapshotHz:30,node:process.versions.node,mcp:{endpoint:'/mcp',resource:PONG_RESOURCE}}));return;}
   if(vite){vite.middlewares(req,res,()=>{res.writeHead(404);res.end();});return;}
   try {
     const pathname=decodeURIComponent(new URL(req.url??'/', 'http://localhost').pathname);
@@ -51,12 +52,15 @@ server.on('upgrade',(req,socket,head)=>{
 wss.on('connection',(ws,req)=>{
   const requested=new URL(req.url??'/',`http://${req.headers.host}`).searchParams.get('side');
   const side:Side|null=requested==='left'||requested==='right'?requested:null;
-  const assigned=side&&!players[side]?side:null;
+  const rules=new URL(req.url??'/',`http://${req.headers.host}`).searchParams.get('rules')==='table-tennis'?'table-tennis':initialRules;
+  if(side&&!players.left&&!players.right&&Boolean(game.tt)!==(rules==='table-tennis')){game=createGame(rules);generation++;history=[];lastReplay=[];}
+  const compatible=Boolean(game.tt)===(rules==='table-tennis');
+  const assigned=side&&!players[side]&&compatible?side:null;
   if(assigned) {
     players[assigned]=ws;decisions[assigned]=null;intentTicks[assigned]=game.tick;
     if(connected().left&&connected().right&&game.phase==='lobby') {game.ball={x:500,y:280,vx:430,vy:148};game.rally=0;startServe(game);}
   }
-  send(ws,{type:'joined',side:assigned,...(side&&!assigned?{reason:'This paddle is already connected. Watching as spectator.'}:{})});send(ws,state());
+  send(ws,{type:'joined',side:assigned,...(side&&!assigned?{reason:compatible?'This paddle is already connected. Watching as spectator.':'This match uses different rules. Watching as spectator.'}:{})});send(ws,state());
   let busy=false,lastDecision=0,sequence=0,lastAccepted=0,lastSeen=Date.now(),windowStart=Date.now(),messages=0;
   const heartbeat=setInterval(()=>{if(Date.now()-lastSeen>10000)ws.terminate();},2000);
   ws.on('message',async data=>{
@@ -69,7 +73,7 @@ wss.on('connection',(ws,req)=>{
       if(msg.type==='replay'){send(ws,{type:'replay',frames:lastReplay});return;}
       if(msg.type==='reset'||msg.type==='matchup') {
         if(msg.type==='matchup'){if(!isMatchup(msg.matchup)){send(ws,{type:'error',message:'Invalid matchup'});return;}const nextRoster=createPlayers(process.env,msg.matchup);matchup=msg.matchup;roster=nextRoster;}
-        game=createGame();generation++;history=[];lastReplay=[];
+        game=createGame(game.tt?'table-tennis':'pong');generation++;history=[];lastReplay=[];
         for(const s of SIDES){decisions[s]=null;intents[s]=0;intentTicks[s]=0;}
         if(connected().left&&connected().right)startServe(game);return;
       }

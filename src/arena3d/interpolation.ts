@@ -1,3 +1,4 @@
+import { TT_TOP,TT_RADIUS,ttPlane } from '../table-tennis';
 import { H,INSET,PADDLE_W,R,W,type GameState } from '../physics';
 import type { ArenaState } from '../protocol';
 const mix=(a:number,b:number,t:number)=>a+(b-a)*t;
@@ -9,11 +10,13 @@ function reflected(a:number,b:number,plane:number,t:number){
 export function interpolateGame(a:GameState,b:GameState,t:number):GameState{
   if(a.phase!==b.phase||a.pointId!==b.pointId)return t<1?a:b;
   const hit=b.rally>a.rally&&a.ball.vx*b.ball.vx<0;
-  const x=hit?reflected(a.ball.x,b.ball.x,a.ball.vx<0?INSET+PADDLE_W+R:W-INSET-PADDLE_W-R,t):{value:mix(a.ball.x,b.ball.x,t),after:t>=1};
-  const wall=!hit&&a.ball.vy*b.ball.vy<0;
+  const x=hit?reflected(a.ball.x,b.ball.x,a.tt?ttPlane(a.ball.vx<0?'left':'right'):a.ball.vx<0?INSET+PADDLE_W+R:W-INSET-PADDLE_W-R,t):{value:mix(a.ball.x,b.ball.x,t),after:t>=1};
+  const wall=!a.tt&&!hit&&a.ball.vy*b.ball.vy<0;
   const y=wall?reflected(a.ball.y,b.ball.y,a.ball.vy<0?R:H-R,t):{value:mix(a.ball.y,b.ball.y,t),after:t>=1};
   const discrete=hit?x.after?b:a:wall?y.after?b:a:a;
-  return {...discrete,tick:mix(a.tick,b.tick,t),countdown:mix(a.countdown,b.countdown,t),
+  const vertical=a.tt&&b.tt?(b.tt.bounceId>a.tt.bounceId?reflected(a.tt.height,b.tt.height,TT_TOP+TT_RADIUS,t):{value:mix(a.tt.height,b.tt.height,t),after:t>=1}):null;
+  const tt=vertical&&a.tt&&b.tt?{...discrete.tt!,height:vertical.value,vz:vertical.after?b.tt.vz:a.tt.vz}:undefined;
+  return {...discrete,...(tt?{tt}:{}),tick:mix(a.tick,b.tick,t),countdown:mix(a.countdown,b.countdown,t),
     ball:{...discrete.ball,x:x.value,y:y.value},paddles:{left:mix(a.paddles.left,b.paddles.left,t),right:mix(a.paddles.right,b.paddles.right,t)}};
 }
 export function createArenaInterpolator(){

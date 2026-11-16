@@ -1,18 +1,21 @@
+import { newTableTennis,startTableTennis,stepTableTennis,type TableTennis } from './table-tennis';
 export type Side = 'left' | 'right';
 export const SIDES: Side[] = ['left', 'right'];
 export const W = 1000, H = 560, PADDLE_H = 86, PADDLE_W = 12, INSET = 34, R = 7;
 export const DT = 1 / 120, WIN_SCORE = 7;
 export type Phase = 'lobby' | 'serve' | 'play' | 'point' | 'won';
+export type Rules = 'pong' | 'table-tennis';
 export interface GameState {
+  tt?:TableTennis;
   tick: number; ball: { x: number; y: number; vx: number; vy: number };
   paddles: Record<Side, number>; targets: Record<Side, number>; score: Record<Side, number>;
   phase: Phase; countdown: number; rally: number; bestRally: number; pointId: number; lastScorer: Side | null;
 }
 export const clamp = (v: number, min: number, max: number) => Math.max(min, Math.min(max, v));
-export function createGame(): GameState {
-  return { tick: 0, ball: { x: W/2, y: H/2, vx: 430, vy: 148 }, paddles: { left: H/2, right: H/2 }, targets: { left: H/2, right: H/2 }, score: { left: 0, right: 0 }, phase: 'lobby', countdown: 1.2, rally: 0, bestRally: 0, pointId: 0, lastScorer: null };
+export function createGame(rules:Rules='pong'): GameState {
+  return { ...(rules==='table-tennis'?{tt:newTableTennis()}:{}), tick: 0, ball: { x: W/2, y: H/2, vx: 430, vy: 148 }, paddles: { left: H/2, right: H/2 }, targets: { left: H/2, right: H/2 }, score: { left: 0, right: 0 }, phase: 'lobby', countdown: 1.2, rally: 0, bestRally: 0, pointId: 0, lastScorer: null };
 }
-export function startServe(s: GameState) { s.phase = 'serve'; s.countdown = 1.2; }
+export function startServe(s: GameState) { if(s.tt){startTableTennis(s);return;}s.phase = 'serve'; s.countdown = 1.2; }
 export function setIntent(s: GameState, side: Side, target: number) { if (Number.isFinite(target)) s.targets[side] = clamp(target, PADDLE_H/2, H-PADDLE_H/2); }
 function award(s: GameState, side: Side) {
   s.score[side]++; s.pointId++; s.lastScorer = side;
@@ -21,6 +24,7 @@ function award(s: GameState, side: Side) {
 }
 /** Mutates one fixed 120 Hz step. No clocks, randomness, network, or AI here. */
 export function step(s: GameState) {
+  if(s.tt){stepTableTennis(s);return;}
   s.tick++;
   if (s.phase === 'lobby') return;
   for (const side of SIDES) {

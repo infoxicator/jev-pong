@@ -21,7 +21,7 @@ try{
   }
   // Refuse to attach to an unrelated process or silently take over an occupied port.
   if(await fetch(`${origin}/health`).then(()=>true).catch(()=>false))throw new Error(`Port ${port} is occupied. Stop the other server or set PORT=5178.`);
-  server=spawn(process.execPath,['--import','tsx','server/index.ts'],{stdio:'inherit',env:{...process.env,...(matchupArg?{PONG_MATCHUP:matchupArg}:{}),...(smoke?{JEV_MOCK:'1'}:{})}});
+  server=spawn(process.execPath,['--import','tsx','server/index.ts'],{stdio:'inherit',env:{...process.env,...(view3d?{PONG_RULES:'table-tennis'}:{}),...(matchupArg?{PONG_MATCHUP:matchupArg}:{}),...(smoke?{JEV_MOCK:'1'}:{})}});
   let ready=false;for(let n=0;n<100;n++){if(server.exitCode!==null)throw new Error('Game server exited before startup.');try{const r=await fetch(`${origin}/health`);if(r.ok){ready=true;break;}}catch{}await new Promise(r=>setTimeout(r,100));}
   if(!ready)throw new Error('Server did not become ready within 10 seconds.');
   let screenWidth=1440,screenHeight=960;

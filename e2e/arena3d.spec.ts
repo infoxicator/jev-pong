@@ -18,6 +18,8 @@ test('3D eyes and sideline render the same scored WebSocket match while original
     await right.goto('/arena3d.html?side=right');await expect(right.locator('body')).toHaveAttribute('data-role','right',{timeout:30_000});
     for(const [page,view] of [[left,'left'],[right,'right'],[watch,'spectator']] as const){
       await expect(page.locator('canvas')).toHaveAttribute('data-camera',view);await expect(page.locator('canvas')).toHaveAttribute('data-robots','2');
+      await expect(page.locator('canvas')).toHaveAttribute('data-panels','0');
+      await expect(page.locator('canvas')).toHaveAttribute('data-rules','table-tennis');
       await expect.poll(async()=>Number(await page.locator('canvas').getAttribute('data-triangles'))).toBeGreaterThan(10_000);
       expect(await page.evaluate(()=>document.querySelector('canvas')!.getContext('webgl2')!==null)).toBe(true);
     }
@@ -29,7 +31,7 @@ test('3D eyes and sideline render the same scored WebSocket match while original
         const data=document.querySelector('canvas')!.dataset;
         const errors=(window as unknown as {motionErrors:string[]}).motionErrors;
         if(Number(data.contactError)>.006)errors.push(`Unreachable bat: ${data.contactError}`);
-        if(Number(data.ballClearance)<-.0001)errors.push(`Ball below table: ${data.ballClearance}`);
+        if(data.overTable==='true'&&Number(data.ballClearance)<-.0001)errors.push(`Ball below table: ${data.ballClearance}`);
         if(++frames<2400)requestAnimationFrame(sample);
       };requestAnimationFrame(sample);
     });
@@ -40,7 +42,9 @@ test('3D eyes and sideline render the same scored WebSocket match while original
     await expect.poll(()=>intents.left>4&&intents.right>4).toBe(true);
     await expect.poll(()=>states.some(s=>s.game.pointId>0),{timeout:90_000}).toBe(true);
     const scored=states.find(s=>s.game.pointId>0)!;expect(scored.mode).toBe('mock');
-    for(const side of ['left','right'] as const)expect(Math.max(...states.map(s=>s.game.paddles[side]))-Math.min(...states.map(s=>s.game.paddles[side]))).toBeGreaterThan(20);
+    expect(scored.game.tt).toBeDefined();expect(scored.game.tt!.bounceId).toBeGreaterThan(1);
+    expect(Math.max(...states.map(s=>s.game.tt!.height))-Math.min(...states.map(s=>s.game.tt!.height))).toBeGreaterThan(.2);
+    for(const side of ['left','right'] as const)await expect.poll(()=>Math.max(...states.map(s=>s.game.paddles[side]))-Math.min(...states.map(s=>s.game.paddles[side])),{timeout:30_000}).toBeGreaterThan(20);
     await expect.poll(async()=>{const score=states.at(-1)!.game.score;const displayed=await Promise.all([left,right,watch].map(async p=>[await p.locator('#score-left').textContent(),await p.locator('#score-right').textContent()]));return displayed.every(([l,r])=>l===String(score.left)&&r===String(score.right));}).toBe(true);
     await watch.screenshot({path:info.outputPath('3d-sideline.png'),fullPage:true});await left.screenshot({path:info.outputPath('3d-left-eyes.png'),fullPage:true});await right.screenshot({path:info.outputPath('3d-right-eyes.png'),fullPage:true});
     await watch.bringToFront();await watch.getByRole('button',{name:/Replay point/}).click();await expect(watch.locator('body')).toHaveAttribute('data-replay','true');await watch.getByRole('button',{name:/Back to live/}).click();

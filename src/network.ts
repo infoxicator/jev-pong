@@ -1,19 +1,20 @@
 import type { HostedRoom } from './hosting';
-import type { GameState, Side } from './physics';
+import type { GameState, Side, Rules } from './physics';
 import type { ArenaState, ClientMessage, ServerMessage } from './protocol';
 export interface Connection { state:ArenaState|null; canReset:boolean; side:Side|null; status:string; latency:number; received:number; onReplay:(frames:GameState[])=>void; send:(message:ClientMessage)=>void; close:()=>void }
 let endpoint:{origin:string;token:string}|null=null;
 /** Only used by the MCP entry point. Ordinary web URLs and same-origin checks are unchanged. */
 export function configureMcpConnection(origin:string,token:string){endpoint={origin,token};}
-export function connect(requested:Side|null,hosted:HostedRoom|null=null):Connection {
+export function connect(requested:Side|null,hosted:HostedRoom|null=null,rules:Rules='pong'):Connection {
   let ws:WebSocket|null=null,retry=300,closed=false,awaiting=false,lastRequest=0,nextDecisionAt=0;
   const c:Connection={state:null,canReset:!hosted,side:null,status:'CONNECTING',latency:0,received:0,onReplay:()=>{},send:msg=>{if(ws?.readyState===WebSocket.OPEN)ws.send(JSON.stringify(msg));},close:()=>{closed=true;clearInterval(agentTimer);clearInterval(pingTimer);removeEventListener('pagehide',c.close);ws?.close();}};
   const open=()=>{
     if(closed)return;
     const url=new URL(hosted?`/api/rooms/${hosted.room}/ws`:'/ws',endpoint?.origin??location.origin);url.protocol=url.protocol==='https:'?'wss:':'ws:';
+    if(rules==='table-tennis')url.searchParams.set('rules',rules);
     if(requested)url.searchParams.set('side',requested);if(endpoint)url.searchParams.set('mcp_token',endpoint.token);
     ws=new WebSocket(url);
-    ws.onopen=()=>{c.status='CONNECTED';retry=300;if(hosted)c.send({type:'join',side:requested,token:hosted.token});};
+    ws.onopen=()=>{c.status='CONNECTED';retry=300;if(hosted)c.send({type:'join',side:requested,token:hosted.token,rules});};
     ws.onmessage=event=>{
       if(event.data==='pong'){c.latency=Math.round(performance.now()-lastPing);return;}
       const message=JSON.parse(event.data) as ServerMessage;

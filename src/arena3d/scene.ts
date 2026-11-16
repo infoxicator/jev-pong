@@ -39,12 +39,12 @@ export async function createArena3D(canvas:HTMLCanvasElement){
     box([2.3,.12,.65],[x,5.1,0],dark);box([2.1,.025,.52],[x,5.025,0],warm,false);
     box([1.8,.12,.5],[x,4.6,-5.3],dark);box([1.7,.025,.44],[x,4.525,-5.3],cool,false);
   }
-  // Compact regulation-size court with visible rebound rails for Pong side bounces.
+  // Open regulation-size court: no side panels, rails or invisible wall geometry.
   for(const z of [-1.65,1.65])box([5.2,.002,.018],[0,.018,z],edgeMat,false);
   for(const x of [-2.6,2.6])box([.018,.002,3.3],[x,.018,0],edgeMat,false);
   for(const side of ['left','right'] as const){const x=side==='left'?-2.5:2.5;box([.022,.003,2.7],[x,.02,0],side==='left'?green:orange,false);}
   box([HALF_LENGTH*2,.055,HALF_WIDTH*2],[0,TABLE_TOP-.0275,0],tableMat);
-  for(const z of [-HALF_WIDTH,HALF_WIDTH])box([2.77,.065,.028],[0,.745,z],dark);
+  for(const z of [-HALF_WIDTH,HALF_WIDTH])box([2.77,.065,.028],[0,TABLE_TOP-.065,z],dark);
   for(const x of [-.87,.87])for(const z of [-.51,.51]){box([.045,.70,.045],[x,.39,z],dark);box([.12,.024,.12],[x,.028,z],dark);}
   box([1.77,.045,.04],[0,.30,-.51],dark);box([1.77,.045,.04],[0,.30,.51],dark);
   for(const z of [-HALF_WIDTH+.015,HALF_WIDTH-.015])box([2.72,.001,.012],[0,TABLE_TOP+.001,z],white,false);
@@ -58,12 +58,6 @@ export async function createArena3D(canvas:HTMLCanvasElement){
   const netGeo=new THREE.PlaneGeometry(1.66,.1525);geometries.push(netGeo);const net=new THREE.Mesh(netGeo,netMat);net.rotation.y=Math.PI/2;net.position.y=TABLE_TOP+.07625;scene.add(net);
   box([.009,.012,1.68],[0,TABLE_TOP+.1525,0],white,false);
   for(const z of [-.84,.84]){box([.018,.19,.018],[0,TABLE_TOP+.067,z],dark);box([.07,.025,.06],[0,.78,z],dark);}
-  const railMat=new THREE.MeshPhysicalMaterial({color:0x9bbfb7,roughness:.23,metalness:.05,transparent:true,opacity:.12,depthWrite:false});materials.push(railMat);
-  for(const z of [-HALF_WIDTH-.006,HALF_WIDTH+.006]){
-    box([2.75,.57,.012],[0,TABLE_TOP+.285,z],railMat,false);
-    box([2.75,.008,.012],[0,TABLE_TOP+.57,z],edgeMat,false);
-    for(const x of [-1.37,1.37])box([.012,.57,.012],[x,TABLE_TOP+.285,z],dark,false);
-  }
   // Studio lighting, specular definition and contact shadows.
   scene.add(new THREE.HemisphereLight(0xdbe9ed,0x414438,0.65));
   const key=new THREE.DirectionalLight(0xffedcf,2.2);key.position.set(-3,7,4);key.castShadow=true;key.shadow.mapSize.set(2048,2048);Object.assign(key.shadow.camera,{left:-3.5,right:3.5,top:3,bottom:-3,near:.1,far:22});key.shadow.bias=-.00035;key.shadow.normalBias=.005;scene.add(key);
@@ -93,14 +87,15 @@ export async function createArena3D(canvas:HTMLCanvasElement){
     render(game:GameState,view:CameraView,now:number){
       if(disposed)return;
       const w=canvas.clientWidth,h=canvas.clientHeight;if(w!==width||h!==height){width=w;height=h;renderer.setSize(w,h,false);camera.aspect=w/Math.max(1,h);camera.updateProjectionMatrix();}
-      const t=game.tick/120,[bx,by,bz]=ballPosition(game),active=game.phase==='play'||game.phase==='serve';
+      const t=game.tick/120,[bx,by,bz]=ballPosition(game),active=game.phase!=='lobby'&&(!game.tt||game.tt.height>TABLE_TOP*.1||game.countdown>1.1);
       ball.position.set(bx,by,bz);
-      let maxContactError=0;
+      let maxContactError=0,eye:THREE.Vector3|undefined;
       for(const side of ['left','right'] as const){
         const pose=robots[side].update(game,ball.position,view,t);
         maxContactError=Math.max(maxContactError,pose.contactError);
+        if(side===view)eye=pose.eye;
       }
-      ball.visible=active;ballShadow.visible=active;
+      ball.visible=active;ballShadow.visible=active&&Math.abs(bx)<=HALF_LENGTH&&Math.abs(bz)<=HALF_WIDTH&&by>=TABLE_TOP;
       ballShadow.position.x=bx;ballShadow.position.z=bz;
       const ballHeight=by-TABLE_TOP;
       ballShadow.scale.setScalar(1+ballHeight*.45);shadowMat.opacity=.32/(1+ballHeight*2);
@@ -114,7 +109,10 @@ export async function createArena3D(canvas:HTMLCanvasElement){
       canvas.dataset.contactError=maxContactError.toFixed(5);
       canvas.dataset.ballHeight=by.toFixed(5);
       canvas.dataset.ballClearance=(by-TABLE_TOP-BALL_RADIUS).toFixed(5);
-      const pose=cameraPose(view,game,camera.aspect);camera.position.set(...pose.position);camera.fov=pose.fov;camera.updateProjectionMatrix();camTarget.set(...pose.target);camera.lookAt(camTarget);
+      canvas.dataset.overTable=String(Math.abs(bx)<=HALF_LENGTH&&Math.abs(bz)<=HALF_WIDTH);
+      canvas.dataset.rules=game.tt?'table-tennis':'pong';
+      canvas.dataset.panels='0';
+      const pose=cameraPose(view,game,camera.aspect);camera.position.set(...pose.position);if(eye)camera.position.copy(eye);camera.fov=pose.fov;camera.updateProjectionMatrix();camTarget.set(...pose.target);camera.lookAt(camTarget);
       renderer.render(scene,camera);
       canvas.dataset.rendered='true';canvas.dataset.camera=view;canvas.dataset.robots='2';canvas.dataset.tick=String(game.tick);canvas.dataset.triangles=String(renderer.info.render.triangles);
     },

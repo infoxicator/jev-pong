@@ -225,3 +225,27 @@ Verification used Node 24.14.0 with `JEV_MOCK=1` for all game-server tests. Init
 - SHA-256 comparison confirmed the original 2D UI, shared network code, authoritative physics, server and MCP presentation remain byte-for-byte unchanged from the start of the 3D work. Earlier uncommitted invitation edits remain separate.
 
 The transparent rails visualize Pong's existing side-wall rules. Ball height and limb poses are visual effects, not a replacement of the authoritative 2D physics. Tests and visual review found no penetration, stretched-arm, early-reversal or trail artifacts in the exercised scenarios; this is not a claim that every possible browser/GPU/network condition is covered.
+
+## 2026-11-16: Open table-tennis court and athletic robot motion
+
+Removed the transparent side panels. The 3D entry now selects an isolated table-tennis ruleset on the existing Node/ws or Cloudflare Durable Object server. Original Pong remains the default for the original UI. Unlike the earlier cosmetic ball arc, this ruleset owns height, vertical velocity, gravity, spin/curve, table and net contacts, legal two-bounce serves, lets, open sidelines, missed/long/out/double-bounce faults and games to 11, win by two. Agents continue to choose positioning; a deterministic stroke controller selects drives, topspin, pushes, lobs and high-ball smashes from actual contact and opponent position. No extra provider calls were introduced.
+
+The existing Blender model now uses a crouched staggered stance, torso turn/weight transfer, anticipatory forehand/backhand preparation, articulated wrist rotation, free-arm balance and alternating shuffle steps. Follow-through travels with the recovering body. Player cameras follow the actual head position. Table height is 0.76 m. No model asset or original UI redesign was needed.
+
+Verification used Node v24.14.0 via `env PATH=/Users/ruben.casas@postman.com/.nvm/versions/node/v24.14.0/bin:$PATH` and mocks/local HTTP provider fixtures only:
+
+- `npm run build`: PASS, application and Worker typechecks, web/MCP/host builds. Existing large Three.js chunk and third-party annotation warnings remain non-fatal.
+- `npm test`: PASS, 33 tests in 8 files. New rules tests cover service order, net/side/long/double-bounce faults, lets, deuce, honest reach, deterministic shot variety and actual spin acceleration. The loaded GLB test exercises 36,000 ticks (five simulated minutes), both stroke hands, >10 contacts, <6 mm pose-target error, <1 mm strike error, wrist articulation and floor clearance.
+- `npm run test:provider`, `npm run test:luna`, `npm run test:quota`: PASS, existing real SDK/HTTP fixture contracts, malformed/timeout/429 fallbacks, independent providers, and cooldown persistence. No real provider endpoint was called.
+- `npm run test:e2e`: PASS, all three scenarios in 1.8 minutes. Original Pong and Jev/Luna matches/reconnect passed. The 3D match used three separate contexts, actual WebGL and GLB assets, both WebSocket agent loops (66/57 intents), a scored point, varying authoritative ball height, zero side panels, synchronized score, original 2D spectator, replay, both player cameras, mobile layout and disconnect. Render sampling found no unreachable racket poses or balls below the surface while over the table.
+- `npm run test:worker -- e2e-worker/arena3d.spec.ts`: PASS, 28.3 seconds, local workerd only. Three real 3D browser clients scored 1:0 and verified durable table-tennis state, pause/reconstruction, reconnect and owner reset.
+- `npm run test:clock`: PASS, deterministic 120 Hz under irregular scheduling, capped catch-up and room option validation. Initial sandbox execution could not open tsx's local IPC socket; the normal permitted local execution passed.
+- SHA-256 comparison: original `src/main.ts`, `src/style.css`, `src/canvas.ts`, `src/web.ts` and `src/mcp-app.ts` unchanged. Existing invitation edits are excluded from this task's commit.
+
+Intermediate tests caught an overextended follow-through; moving the swing with the recovering torso and adding weight transfer fixed it. Browser assertions were corrected to wait for both players' asynchronous movement/intents across points, since a missed opening serve can score before the server needs to return. The Worker test parser now excludes its plain-text heartbeat. Passing results above are the reruns after those fixes.
+
+This remains a simplified deterministic table-tennis simulation with procedural joint animation, not full rigid-body/human biomechanics. Tests establish the exercised trajectories and browser scenarios; they do not prove every possible GPU/network/shot combination.
+
+Final `npm run verify`: PASS (exit 0). In addition to the checks above, `npm run test:mcp` passed real MCP initialization and resource/tool contracts, sandboxed AppBridge gameplay (score 1:0, best rally 18, 2,457 state frames), shared spectator/status, replay, fullscreen, matchup switching, stop/start and isolated teardown.
+
+Final local launch: `PORT=5277 JEV_MOCK=1 PONG_MATCHUP=jev-vs-jev npm run demo:3d` opened three independent native Chromium windows. `curl --fail --silent http://127.0.0.1:5277/health` returned HTTP 200, `mode: mock`, `rules: table-tennis`, both seats connected, 120 Hz physics and 30 Hz snapshots. Manual shared-browser review covered the open sideline court and opposing eye cameras. The demo is left running locally with no paid AI requests. No push or deployment was performed.

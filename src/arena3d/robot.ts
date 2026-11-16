@@ -1,3 +1,4 @@
+import { createTableTennisRobot } from './table-tennis-robot';
 import * as THREE from 'three';
 import { PADDLE_H,R,type GameState,type Side } from '../physics';
 import { BODY_OFFSET,CONTACT_HEIGHT,SCALE,lane,robotX,strikeX } from './cameras';
@@ -5,6 +6,7 @@ import { setWorldRotation,solveLimb } from './kinematics';
 
 interface Foot {upper:THREE.Object3D;lower:THREE.Object3D;end:THREE.Object3D;planted:THREE.Vector3;from:THREE.Vector3;to:THREE.Vector3;started:number;rest:THREE.Quaternion[]}
 export function createRobot(root:THREE.Group,side:Side){
+  const tableTennis=createTableTennisRobot(root,side);
   const sign=side==='left'?1:-1;
   const node=(name:string)=>{const object=root.getObjectByName(name);if(!object)throw new Error(`Robot asset missing ${name}`);return object;};
   const head=node('Head'),upper=node('UpperArm_R'),lower=node('Forearm_R'),wrist=node('Wrist_R'),contact=node('RacketContact');
@@ -15,6 +17,7 @@ export function createRobot(root:THREE.Group,side:Side){
   return {
     root,
     update(game:GameState,ball:THREE.Vector3,view:string,time:number){
+      if(game.tt)return tableTennis.update(game,ball,view,time);
       const reset=!initialized||time<lastTime||time-lastTime>.25;
       root.position.set(robotX(side),-.025,lane(game.paddles[side])+sign*BODY_OFFSET);
       [upper,lower,wrist].forEach((o,i)=>o.quaternion.copy(armRest[i]));
@@ -60,7 +63,7 @@ export function createRobot(root:THREE.Group,side:Side){
       head.visible=view!==side;
       head.rotation.y=THREE.MathUtils.clamp((ball.z-root.position.z)*sign*.25,-.28,.28);
       lastRally=game.rally;lastTime=time;initialized=true;
-      return {contactError,face:contact.getWorldPosition(new THREE.Vector3()),struck,reach:reachable};
+      return {eye:undefined,hand:undefined,contactError,face:contact.getWorldPosition(new THREE.Vector3()),struck,reach:reachable};
     },
   };
 }

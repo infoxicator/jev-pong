@@ -74,3 +74,24 @@ it('meets both edges of the authoritative paddle without stretched arms',()=>{
     expect(Math.abs(pose.face.x-ball.x)).toBeCloseTo(BALL_RADIUS,3);
   }
 });
+
+it('executes table-tennis strokes with articulated wrists, grounded feet and honest contact reach',async()=>{
+  const {startServe,setIntent}=await import('../src/physics');const {mockBrain,snapshot}=await import('../src/agents');
+  const roots=[model.clone(true),model.clone(true)];roots[0].rotation.y=Math.PI/2;roots[1].rotation.y=-Math.PI/2;
+  const rigs=[createRobot(roots[0],'left'),createRobot(roots[1],'right')],s=createGame('table-tennis');startServe(s);
+  let maxStrikeError=0,maxError=0,minFoot=Infinity,contacts=0,maxWristAngle=0;const hands=new Set<string>();
+  const initial=roots.map(r=>r.getObjectByName('Wrist_R')!.quaternion.clone());
+  for(let i=0;i<36000;i++){
+    if(i%24===0)for(const side of ['left','right'] as const)setIntent(s,side,mockBrain(snapshot(s,side)).target_y);
+    step(s);const ball=new THREE.Vector3(...ballPosition(s));
+    rigs.forEach((rig,index)=>{
+      const pose=rig.update(s,ball,'spectator',s.tick/120);maxError=Math.max(maxError,pose.contactError);
+      if(pose.struck&&s.phase==='play'){contacts++;hands.add(pose.hand!);maxStrikeError=Math.max(maxStrikeError,pose.contactError);}
+      maxWristAngle=Math.max(maxWristAngle,roots[index].getObjectByName('Wrist_R')!.quaternion.angleTo(initial[index]));
+      roots[index].updateMatrixWorld(true);
+      for(const label of ['L','R'])minFoot=Math.min(minFoot,new THREE.Box3().setFromObject(roots[index].getObjectByName(`Sole_${label}`)!).min.y);
+    });
+  }
+  expect(maxError).toBeLessThan(.006);expect(maxStrikeError).toBeLessThan(.001);expect(minFoot).toBeGreaterThan(.008);expect(contacts).toBeGreaterThan(10);
+  expect(maxWristAngle).toBeGreaterThan(.4);expect(hands.has('forehand')&&hands.has('backhand')).toBe(true);
+});
