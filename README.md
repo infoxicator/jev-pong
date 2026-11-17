@@ -65,6 +65,21 @@ The first player in an empty lobby selects the ruleset; both players must open t
 
 `npm run demo:3d:smoke` opens all three views headlessly with mocks, then closes them. `npm run test:e2e -- e2e/arena3d.spec.ts` verifies loaded Blender geometry and real WebGL rendering, the opposing eye cameras, both independent intent loops, ball/paddle movement and a scored point, shared 2D/3D score, replay, camera switching, mobile layout and player leave.
 
+## Jev vs Luna decision benchmark
+
+```sh
+npm run benchmark
+npm run benchmark -- --live
+```
+
+The first command benchmarks the existing exhibition decision schedules and verifies the tactical mode against local HTTP fixtures. The live command sends one choice per trial to each configured provider, with a maximum of 24 requests per provider. It uses `.env.local` by default. Pass `--env-file /path/to/.env.local` to use a different local file or `--limit 4` to run the first four scenarios. A provider's requests stop for the run on HTTP 429, 401 or 403.
+
+The benchmark uses 12 deterministic situations covering wide returns, recovery, high balls and serve receive. Every situation is replayed from both seats, with the same starting server, ball and paddles mirrored across the table. Both models get the same state and feasible choices, without personas or taunts. Each has 750 ms to select a safe return, deep corner or short drop. An on-time choice takes effect on the same simulation tick at 0.5× pace, regardless of its arrival time. The existing controller handles the lateral movement and racket contact. The trial ends when the opponent returns the ball or a point is scored. The opponent uses a fixed nearest-lane policy with the same reaction window.
+
+Reports in `artifacts/benchmark.json` and `artifacts/benchmark-live.json` distinguish racket contact, legal first bounce, winners, late replies, timeouts and fallbacks. The live comparison counts only complete mirrored scenarios where both models answered on time in both seats. The nearest-lane safe return is the control. The fixed-shot policies and best available outcome show how much difference shot selection can make on these situations.
+
+Open **Benchmark replays** from the 3D arena or visit `/arena3d.html?benchmark` with the app running. Load `artifacts/benchmark-replay.json` or `artifacts/benchmark-live-replay.json`, select a rally, and replay the decision and its landing marker. Viewing a replay uses the local file and starts no live game.
+
 ## Cloudflare and ChatGPT
 
 Deployed web app: **https://jev-vs-jev-pong.mcp-ui-flows-nanobanana.workers.dev**

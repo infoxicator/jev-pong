@@ -11,12 +11,15 @@ export function lunaConfig(env: Record<string, string | undefined>): LunaConfig 
   return { mock, apiKey: env.OPENAI_API_KEY, baseURL: 'https://api.openai.com/v1', model: LUNA_MODEL, intervalMs, tokensPerMinute };
 }
 interface ChoiceAnswer { type: 'choice'; name: string; choice: string; confidence: number }
-function choiceAnswer(answers: unknown, name: string, allowed: string[]): ChoiceAnswer {
+export function choiceAnswer(answers: unknown, name: string, allowed: string[]): ChoiceAnswer {
   if (!Array.isArray(answers)) throw new Error('Missing Decisions answers');
   const matches = answers.filter((a: unknown): a is ChoiceAnswer => !!a && typeof a === 'object' && (a as ChoiceAnswer).name === name);
   const a = matches[0];
   if (matches.length !== 1 || a.type !== 'choice' || !allowed.includes(a.choice) || !Number.isFinite(a.confidence) || a.confidence < 0 || a.confidence > 1) throw new Error('Invalid or refused Decisions answer');
   return a;
+}
+export function fetchLuna(config:LunaConfig,request:unknown,transport:typeof fetch=fetch){
+  return transport(`${config.baseURL.replace(/\/$/, '')}/decisions`, { method: 'POST', headers: { Authorization: `Bearer ${config.apiKey}`, 'Content-Type': 'application/json' }, body: JSON.stringify(request), signal: AbortSignal.timeout(1500) });
 }
 export function lunaRequest(s: Snapshot) {
   const persona = PERSONAS[s.side];
@@ -46,7 +49,7 @@ export function createLunaBrain(config: LunaConfig, transport: typeof fetch = fe
     try {
       if (!config.apiKey) throw new Error('Missing OpenAI key');
       const request = lunaRequest(s);
-      const response = await transport(`${config.baseURL.replace(/\/$/, '')}/decisions`, { method: 'POST', headers: { Authorization: `Bearer ${config.apiKey}`, 'Content-Type': 'application/json' }, body: JSON.stringify(request), signal: AbortSignal.timeout(1500) });
+      const response = await fetchLuna(config,request,transport);
       api={status:response.status,requestId:response.headers.get('x-request-id')??undefined};
       if (!response.ok) {
         const error=await response.json().catch(()=>null) as {error?:{message?:string}}|null;

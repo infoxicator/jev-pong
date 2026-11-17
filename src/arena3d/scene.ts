@@ -2,7 +2,7 @@ import * as THREE from 'three';
 import { GLTFLoader } from 'three/addons/loaders/GLTFLoader.js';
 import { RoomEnvironment } from 'three/addons/environments/RoomEnvironment.js';
 import type { GameState,Side } from '../physics';
-import { BALL_RADIUS,TABLE_TOP,ballPosition,cameraPose,HALF_LENGTH,HALF_WIDTH,type CameraView } from './cameras';
+import { BALL_RADIUS,TABLE_TOP,ballPosition,cameraPose,HALF_LENGTH,HALF_WIDTH,SCALE,lane,type CameraView } from './cameras';
 import { createRobot } from './robot';
 const TEAM={left:0xd9ff92,right:0xff794c};
 
@@ -76,6 +76,10 @@ export async function createArena3D(canvas:HTMLCanvasElement){
   const ball=new THREE.Mesh(ballGeo,mat(0xfff4da,.72,0));ball.castShadow=true;scene.add(ball);
   const shadowGeo=new THREE.CircleGeometry(BALL_RADIUS*1.4,24);geometries.push(shadowGeo);const shadowMat=new THREE.MeshBasicMaterial({color:0x050b0a,transparent:true,opacity:.35,depthWrite:false});materials.push(shadowMat);
   const ballShadow=new THREE.Mesh(shadowGeo,shadowMat);ballShadow.rotation.x=-Math.PI/2;ballShadow.position.y=TABLE_TOP+.002;scene.add(ballShadow);
+  const landingGeo=new THREE.RingGeometry(.062,.075,40);geometries.push(landingGeo);
+  const landingMat=new THREE.MeshBasicMaterial({color:TEAM.left});materials.push(landingMat);
+  const landingMarker=new THREE.Mesh(landingGeo,landingMat);
+  landingMarker.rotation.x=-Math.PI/2;landingMarker.visible=false;scene.add(landingMarker);
   // A visible comet tail that fades behind the ball and clears at contacts/seeks.
   const trailSamples=24,trailLifetime=.16;
   const trailGeo=new THREE.BufferGeometry(),trailArray=new Float32Array(trailSamples*3),trailColors=new Float32Array(trailSamples*3);
@@ -85,6 +89,13 @@ export async function createArena3D(canvas:HTMLCanvasElement){
   const trailFrames:{position:THREE.Vector3;time:number}[]=[];
   const camTarget=new THREE.Vector3();
   return {
+    markLanding(landing:{x:number;y:number}|null,side:Side){
+      landingMarker.visible=landing!==null;
+      if(landing){
+        landingMarker.position.set(landing.x*SCALE-HALF_LENGTH,TABLE_TOP+.004,lane(landing.y));
+        landingMat.color.setHex(TEAM[side]);
+      }
+    },
     render(game:GameState,view:CameraView,now:number){
       if(disposed)return;
       const w=canvas.clientWidth,h=canvas.clientHeight;if(w!==width||h!==height){width=w;height=h;renderer.setSize(w,h,false);camera.aspect=w/Math.max(1,h);camera.updateProjectionMatrix();}

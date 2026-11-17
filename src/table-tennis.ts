@@ -1,12 +1,18 @@
 import type { GameState,Side } from './physics';
 export const TT_SCALE=.00274,TT_TOP=.76,TT_RADIUS=.01918,TT_NET=.1525,TT_GRAVITY=9.81;
 export const TT_REACH=38,TT_WIN=11,TT_STEP=1/120;
-export type StrokeKind='serve'|'drive'|'topspin'|'push'|'smash'|'lob';
+export const TT_PADDLE_SPEED=780,TT_PADDLE_ACCELERATION=3200;
+export type TacticalShot='safe'|'deep'|'drop';
+export type StrokeKind='serve'|'drive'|'topspin'|'push'|'smash'|'lob'|'drop';
 export interface Stroke {tick:number;x:number;y:number;height:number;kind:StrokeKind;hand:'forehand'|'backhand'|'serve'}
 export interface TableTennis {
   height:number;vz:number;spin:number;curve:number;server:Side;lastHitter:Side;
   serving:boolean;ownBounce:boolean;bounces:number;netTouched:boolean;bounceId:number;
   shot:StrokeKind;reason:string;velocity:Record<Side,number>;strokes:Record<Side,Stroke|null>;
+  tactical?: {
+    plans: Partial<Record<Side,TacticalShot>>;
+    landing: {x:number;y:number;strokeTick:number}|null;
+  };
 }
 const other=(side:Side):Side=>side==='left'?'right':'left';
 const clamp=(v:number,a:number,b:number)=>Math.max(a,Math.min(b,v));
@@ -38,6 +44,12 @@ function serve(s:GameState){
  * reach/timing comes from agent positioning. It cannot rescue an unreachable ball. */
 export function returnShot(s:GameState,side:Side){
   const t=s.tt!,sign=side==='left'?1:-1,offset=(s.ball.y-s.paddles[side])/TT_REACH;
+  const plan=t.tactical?.plans[side];
+  if(plan&&t.tactical){
+    delete t.tactical.plans[side];
+    playTacticalShot(s,side,plan);
+    return;
+  }
   const seed=Math.sin((s.pointId+1)*17.3+(s.rally+1)*7.1+(side==='left'?0:2));
   const kind:StrokeKind=t.height>1.16&&s.rally>1?'smash':Math.abs(offset)>.65?'lob':s.rally%3===2?'push':s.rally%3===1?'topspin':'drive';
   const speed=kind==='smash'?6.8:kind==='lob'?3.0:kind==='push'?3.7:Math.min(6.4,4.25+s.rally*.18+(kind==='topspin'?.35:0));
@@ -55,6 +67,25 @@ export function returnShot(s:GameState,side:Side){
   s.ball.vx=sign*speed/TT_SCALE;s.ball.vy=(aim-s.ball.y)/duration-.5*t.curve/TT_SCALE*duration;
   t.lastHitter=side;t.bounces=0;t.serving=false;t.ownBounce=false;t.netTouched=false;t.shot=kind;
   rememberStroke(s,side,kind);s.rally++;s.bestRally=Math.max(s.bestRally,s.rally);
+}
+function tacticalPlacement(s:GameState,side:Side,shot:TacticalShot){
+  const lowerLane=s.ball.y<280;
+  const depth={safe:775,deep:905,drop:635}[shot];
+  const width={safe:280,deep:lowerLane?398:162,drop:lowerLane?85:475}[shot];
+  return {x:side==='left'?depth:1000-depth,y:width};
+}
+function playTacticalShot(s:GameState,side:Side,shot:TacticalShot){
+  const t=s.tt!,b=s.ball,sign=side==='left'?1:-1;
+  const speed={safe:4.05,deep:5.05,drop:2.95}[shot];
+  const landing=tacticalPlacement(s,side,shot);
+  const duration=Math.abs(landing.x-b.x)*TT_SCALE/speed;
+  t.spin={safe:.35,deep:1.2,drop:-.65}[shot];t.curve=0;
+  t.vz=(TT_TOP+TT_RADIUS-t.height+.5*(TT_GRAVITY+t.spin)*duration**2)/duration;
+  b.vx=sign*speed/TT_SCALE;b.vy=(landing.y-b.y)/duration;
+  t.lastHitter=side;t.bounces=0;t.serving=false;t.ownBounce=false;t.netTouched=false;
+  const kinds:Record<TacticalShot,StrokeKind>={safe:'drive',deep:'topspin',drop:'drop'};
+  t.shot=kinds[shot];
+  rememberStroke(s,side,t.shot);s.rally++;s.bestRally=Math.max(s.bestRally,s.rally);
 }
 function advance(ball:GameState['ball'],t:TableTennis,dt:number){
   ball.x+=ball.vx*dt;ball.y+=ball.vy*dt+.5*t.curve/TT_SCALE*dt*dt;ball.vy+=t.curve/TT_SCALE*dt;
@@ -81,8 +112,8 @@ export function projectTableTennis(ball:GameState['ball'],tt:TableTennis,side:Si
 export function stepTableTennis(s:GameState){
   const t=s.tt!;s.tick++;if(s.phase==='lobby')return;
   for(const side of ['left','right'] as const){
-    const diff=s.targets[side]-s.paddles[side],desired=clamp(diff*14,-780,780);
-    t.velocity[side]+=clamp(desired-t.velocity[side],-3200*TT_STEP,3200*TT_STEP);
+    const diff=s.targets[side]-s.paddles[side],desired=clamp(diff*14,-TT_PADDLE_SPEED,TT_PADDLE_SPEED);
+    t.velocity[side]+=clamp(desired-t.velocity[side],-TT_PADDLE_ACCELERATION*TT_STEP,TT_PADDLE_ACCELERATION*TT_STEP);
     const movement=t.velocity[side]*TT_STEP;
     if(Math.abs(movement)>Math.abs(diff)&&Math.sign(movement)===Math.sign(diff)){s.paddles[side]=s.targets[side];t.velocity[side]=0;}else s.paddles[side]=clamp(s.paddles[side]+movement,-60,620);
   }
@@ -115,7 +146,13 @@ export function stepTableTennis(s:GameState){
         const side:Side=x<500?'left':'right';
         if(t.serving&&!t.ownBounce){if(side!==t.server){bounce(b,t);point(s,receiver,'SERVICE FAULT');break;}t.ownBounce=true;}
         else if(side===t.lastHitter){bounce(b,t);point(s,receiver,'WRONG SIDE');break;}
-        else{t.bounces++;if(t.bounces>1){bounce(b,t);point(s,t.lastHitter,'DOUBLE BOUNCE');break;}if(t.serving&&t.netTouched){t.reason='LET · SERVE AGAIN';startTableTennis(s);break;}}
+        else{
+          t.bounces++;
+          if(t.bounces>1){bounce(b,t);point(s,t.lastHitter,'DOUBLE BOUNCE');break;}
+          if(t.serving&&t.netTouched){t.reason='LET · SERVE AGAIN';startTableTennis(s);break;}
+          const stroke=t.strokes[t.lastHitter];
+          if(t.tactical&&stroke)t.tactical.landing={x,y,strokeTick:stroke.tick};
+        }
         bounce(b,t);
       }else if(t.bounces===0){point(s,receiver,'OUT');break;}
     }

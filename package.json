@@ -30,7 +30,8 @@
     "demo:3d": "node scripts/demo.mjs --3d",
     "demo:3d:smoke": "node scripts/demo.mjs --3d --smoke",
     "test:brains": "tsx scripts/verify-table-tennis-brains.ts",
-    "test:lifecycle": "tsx scripts/verify-decision-lifecycle.ts"
+    "test:lifecycle": "tsx scripts/verify-decision-lifecycle.ts",
+    "benchmark": "node --import tsx scripts/benchmark.ts"
   },
   "devDependencies": {
     "@cloudflare/workers-types": "^5.20261113.1",

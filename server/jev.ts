@@ -10,8 +10,11 @@ export function providerConfig(env: Record<string,string|undefined> = (globalThi
   if(env.JEV_MOCK==='0'&&mock)throw new Error('JEV_MOCK=0 requires a key for the selected TypeSafe, OpenRouter, or AI Gateway provider');
   return { mock, provider:mock?'mock':provider as 'typesafe'|'openrouter'|'vercel', apiKey, baseURL:provider==='typesafe'?'https://api.typesafe.ai':provider==='vercel'?'https://ai-gateway.vercel.sh/typesafe':'https://openrouter.ai/api', model:env.JEV_MODEL??(provider==='typesafe'?'jev-latest':provider==='vercel'?'typesafe-ai/jev':'jev-1.13') };
 }
+export function createJevClient(config: ProviderConfig, transport?: TypeSafeClientConfig['fetch']) {
+  return new TypeSafeClient({ apiKey:config.apiKey, baseURL:config.baseURL, compression:false, timeout:1500, retry:{maxRetries:0}, logLevel:'off', ...(transport?{fetch:transport}:{}) });
+}
 export function createBrain(config: ProviderConfig, transport?: TypeSafeClientConfig['fetch']) {
-  const client=config.mock?null:new TypeSafeClient({ apiKey:config.apiKey, baseURL:config.baseURL, compression:false, timeout:1500, retry:{maxRetries:0}, logLevel:'off', ...(transport?{fetch:transport}:{}) });
+  const client=config.mock?null:createJevClient(config,transport);
   return async (s:Snapshot,sequence:number):Promise<Decision>=>{
     const start=performance.now();
     if(!client) { await new Promise(resolve=>setTimeout(resolve,45+(s.tick%47)));return {action:mockBrain(s),source:'mock',responseMs:Math.round(performance.now()-start),sequence}; }
