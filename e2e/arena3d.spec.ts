@@ -42,7 +42,9 @@ for(const matchup of ['jev-vs-jev','jev-vs-luna'] as const)test(`3D ${matchup}: 
     await expect.poll(()=>states.some(s=>s.game.phase==='play'&&Math.abs(s.game.ball.x-500)>80),{timeout:20_000}).toBe(true);
     await expect.poll(()=>intents.left>4&&intents.right>4).toBe(true);
     await expect.poll(()=>states.some(s=>s.game.pointId>0),{timeout:90_000}).toBe(true);
-    const scored=states.find(s=>s.game.pointId>0)!;expect(scored.mode).toBe('mock');expect(scored.matchup).toBe(matchup);
+    const scored=states.find(s=>s.game.pointId>0)!;expect(scored.mode).toBe('mock');expect(scored.matchup).toBe(matchup);expect(scored.gameSpeed).toBe(matchup==='jev-vs-luna'?.5:1);
+    await expect(watch.locator('#pace')).toHaveText(`${scored.gameSpeed}× SHARED PACE`);
+    for(const side of ['left','right'] as const)await expect.poll(()=>states.some(s=>{const stroke=s.game.tt?.strokes[side];return stroke&&stroke.kind!=='serve';}),{timeout:60_000}).toBe(true);
     expect(scored.players.left.engine).toBe('jev');expect(scored.players.right.engine).toBe(matchup==='jev-vs-luna'?'luna':'jev');
     await expect.poll(()=>states.some(s=>s.decisions.left?.source==='mock'&&s.decisions.right?.source==='mock')).toBe(true);
     expect(scored.game.tt).toBeDefined();expect(scored.game.tt!.bounceId).toBeGreaterThan(1);

@@ -17,3 +17,12 @@ assert.deepEqual(await roomOptions(request('')), {matchup:'jev-vs-jev'});
 assert.deepEqual(await roomOptions(request('{"matchup":"jev-vs-luna"}')), {matchup:'jev-vs-luna'});
 for(const [body,status] of [['{"matchup":"unknown"}',400],['null',400],['{',400],['x'.repeat(1025),413]] as const){const result=await roomOptions(request(body));assert(result instanceof Response);assert.equal(result.status,status);}
 console.log('PASS: hosted matchup defaults/selection; unknown, malformed and oversized room options rejected.');
+
+const {gameSpeed}=await import('../src/pace');
+const tt=createGame('table-tennis');startServe(tt);const expected=structuredClone(tt),slowClock=new FixedClock(0);
+assert.equal(gameSpeed(tt,'jev-vs-luna'),.5);assert.equal(gameSpeed(tt,'jev-vs-jev'),1);
+assert.equal(gameSpeed(createGame(),'jev-vs-luna'),1);
+for(let ms=25;ms<=1000;ms+=25)slowClock.advance(ms,()=>step(tt),gameSpeed(tt,'jev-vs-luna'));
+for(let i=0;i<60;i++)step(expected);
+assert.deepEqual(tt,expected);assert.equal(tt.tick,60);
+console.log('PASS: half-speed applies identical fixed substeps to the whole table-tennis world; Jev-vs-Jev and classic Pong keep full speed.');

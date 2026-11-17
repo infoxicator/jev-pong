@@ -4,9 +4,11 @@ import { readFile } from 'node:fs/promises';
 import { resolve, extname } from 'node:path';
 import { config as loadEnv } from 'dotenv';
 import { WebSocketServer, WebSocket } from 'ws';
+import { FixedClock } from '../src/clock';
+import { gameSpeed } from '../src/pace';
 import { createPlayers } from './players';
 import { isMatchup, matchupTitle, type Matchup, type Engine } from '../src/match';
-import { createGame, step, DT, startServe, setIntent, SIDES, type Side, type GameState, type Rules } from '../src/physics';
+import { createGame, step, startServe, setIntent, SIDES, type Side, type GameState, type Rules } from '../src/physics';
 import { snapshot, type Decision } from '../src/agents';
 import type { ClientMessage, ServerMessage, ArenaState } from '../src/protocol';
 import { createPongMcp, PONG_RESOURCE } from './mcp';
@@ -26,11 +28,11 @@ const providerCooldowns:Partial<Record<Engine,number>>={};
 let history:GameState[]=[],lastReplay:GameState[]=[];
 const send=(ws:WebSocket,message:ServerMessage)=>{if(ws.readyState===WebSocket.OPEN)ws.send(JSON.stringify(message));};
 const connected=()=>({left:players.left?.readyState===WebSocket.OPEN,right:players.right?.readyState===WebSocket.OPEN});
-const state=():ArenaState=>({type:'state',game,connected:connected(),serverTime:Date.now(),decisions,intents,mode:roster.mode,matchup,players:roster.players});
+const state=():ArenaState=>({type:'state',game,gameSpeed:gameSpeed(game,matchup),connected:connected(),serverTime:Date.now(),decisions,intents,mode:roster.mode,matchup,players:roster.players});
 const mcp=createPongMcp(`http://127.0.0.1:${port}`,state);
 const server=createServer(async(req,res)=>{
   if(req.url?.split('?')[0]==='/mcp'){await mcp.handle(req,res);return;}
-  if(req.url==='/health') {res.setHeader('Content-Type','application/json');res.end(JSON.stringify({ok:true,mode:roster.mode,matchup,players:roster.players,rules:game.tt?'table-tennis':'pong',tick:game.tick,connected:connected(),physicsHz:120,snapshotHz:30,node:process.versions.node,mcp:{endpoint:'/mcp',resource:PONG_RESOURCE}}));return;}
+  if(req.url==='/health') {res.setHeader('Content-Type','application/json');res.end(JSON.stringify({ok:true,mode:roster.mode,matchup,players:roster.players,rules:game.tt?'table-tennis':'pong',tick:game.tick,connected:connected(),physicsHz:120,gameSpeed:gameSpeed(game,matchup),snapshotHz:30,node:process.versions.node,mcp:{endpoint:'/mcp',resource:PONG_RESOURCE}}));return;}
   if(vite){vite.middlewares(req,res,()=>{res.writeHead(404);res.end();});return;}
   try {
     const pathname=decodeURIComponent(new URL(req.url??'/', 'http://localhost').pathname);
@@ -79,14 +81,16 @@ wss.on('connection',(ws,req)=>{
       }
       if(!assigned||players[assigned]!==ws)return;
       if(msg.type==='decide') {
-        if(busy||Date.now()-lastDecision<150||game.phase==='lobby'||game.phase==='won')return;
+        if(busy)return;
+        if(Date.now()-lastDecision<150||game.phase==='lobby'||game.phase==='won'){send(ws,{type:'decision-cancelled'});return;}
         const engine=roster.players[assigned].engine,retryAfterMs=(providerCooldowns[engine]??0)-Date.now();
         if(retryAfterMs>0){send(ws,{type:'cooldown',retryAfterMs});return;}
         busy=true;lastDecision=Date.now();const capturedPoint=game.pointId,capturedGeneration=generation;
         try {
           const decision=await roster.brains[assigned](snapshot(game,assigned),++sequence);
           if(decision.retryAfterMs)providerCooldowns[engine]=Date.now()+decision.retryAfterMs;
-          if(players[assigned]!==ws||ws.readyState!==WebSocket.OPEN||capturedPoint!==game.pointId||capturedGeneration!==generation)return;
+          if(players[assigned]!==ws||ws.readyState!==WebSocket.OPEN)return;
+          if(capturedPoint!==game.pointId||capturedGeneration!==generation){send(ws,{type:'decision-cancelled'});return;}
           decisions[assigned]=decision;send(ws,{type:'decision',decision});
         }finally{busy=false;}
       }
@@ -99,16 +103,16 @@ wss.on('connection',(ws,req)=>{
   ws.on('error',()=>{});
   ws.on('close',()=>{clearInterval(heartbeat);if(assigned&&players[assigned]===ws){players[assigned]=null;game.phase='lobby';}});
 });
-let previous=performance.now(),accumulator=0,lastBroadcast=-1;
+const clock=new FixedClock(performance.now());let lastBroadcast=-Infinity;
 const timer=setInterval(()=>{
-  const now=performance.now();accumulator+=Math.min((now-previous)/1000,0.25);previous=now;
-  while(accumulator>=DT){
+  const now=performance.now();
+  clock.advance(now,()=>{
     for(const side of SIDES)if(game.tick-intentTicks[side]>240)setIntent(game,side,280);
-    const point=game.pointId;step(game);accumulator-=DT;
+    const point=game.pointId;step(game);
     if(game.pointId!==point){lastReplay=[...history,structuredClone(game)];history=[];}
     if(game.tick%4===0&&game.phase==='play'){history.push(structuredClone(game));if(history.length>240)history.shift();}
-  }
-  if(Math.floor(game.tick/4)!==lastBroadcast){lastBroadcast=Math.floor(game.tick/4);const message=state();for(const client of wss.clients)send(client,message);}
+  },gameSpeed(game,matchup));
+  if(now-lastBroadcast>=1000/30){lastBroadcast=now;const message=state();for(const client of wss.clients)send(client,message);}
 },4);
 server.listen(port,'127.0.0.1',()=>console.log(`\n${matchupTitle(matchup)} · ${matchup.toUpperCase()} / ${roster.mode.toUpperCase()}\n  Local: http://127.0.0.1:${port}\n  Left:  http://127.0.0.1:${port}/?side=left\n  Right: http://127.0.0.1:${port}/?side=right\n  Watch: http://127.0.0.1:${port}/?spectate\n`));
 async function shutdown(){clearInterval(timer);for(const ws of wss.clients)ws.terminate();wss.close();server.close();await vite?.close();process.exit(0);}

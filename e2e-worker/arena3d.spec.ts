@@ -3,7 +3,7 @@ import type { RoomLinks } from '../src/hosting';
 import type { ArenaState } from '../src/protocol';
 test.use({launchOptions:{args:['--enable-unsafe-swiftshader']}});
 test('3D room selects durable table-tennis rules, scores, pauses and preserves rules on reset',async({browser,request,baseURL})=>{
-  const response=await request.post('/api/rooms',{headers:{Origin:baseURL!}});expect(response.status()).toBe(201);
+  const response=await request.post('/api/rooms',{headers:{Origin:baseURL!},data:{matchup:'jev-vs-luna'}});expect(response.status()).toBe(201);
   const links:RoomLinks=await response.json();
   const arena=(link:string)=>{const url=new URL(link);url.pathname='/arena3d.html';return url.href;};
   const contexts=await Promise.all([browser.newContext(),browser.newContext(),browser.newContext()]);
@@ -16,7 +16,7 @@ test('3D room selects durable table-tennis rules, scores, pauses and preserves r
     await expect(watch.locator('canvas')).toHaveAttribute('data-rules','table-tennis');
     await expect(watch.locator('canvas')).toHaveAttribute('data-panels','0');
     await expect.poll(()=>states.some(s=>s.game.tt&&s.game.pointId>0&&s.game.bestRally>0),{timeout:60_000}).toBe(true);
-    const point=states.find(s=>s.game.pointId>0&&s.game.bestRally>0)!;expect(point.mode).toBe('mock');
+    const point=states.find(s=>s.game.pointId>0&&s.game.bestRally>0)!;expect(point.mode).toBe('mock');expect(point.gameSpeed).toBe(.5);await expect(watch.locator('#pace')).toHaveText('0.5× SHARED PACE');
     await expect.poll(()=>states.at(-1)!.intents.left>2&&states.at(-1)!.intents.right>2,{timeout:15_000}).toBe(true);
     await right.close();await expect.poll(()=>states.at(-1)?.game.phase).toBe('lobby');
     const token=new URLSearchParams(new URL(links.owner).hash.slice(1)).get('token')!,headers={Authorization:`Bearer ${token}`};

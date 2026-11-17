@@ -1,3 +1,4 @@
+import { gameSpeed } from '../src/pace';
 import { handleMcp } from './mcp';
 import { DurableObject } from 'cloudflare:workers';
 import { createPlayers } from '../server/players';
@@ -84,7 +85,7 @@ export class GameRoom extends DurableObject<Env> {
     });
   }
   private connected(){return {left:!!this.players.left,right:!!this.players.right};}
-  private state():ArenaState{return {type:'state',game:this.game,connected:this.connected(),serverTime:Date.now(),decisions:this.decisions,intents:this.intents,mode:this.roster().mode,matchup:this.saved?.matchup??'jev-vs-jev',players:this.roster().players};}
+  private state():ArenaState{return {type:'state',game:this.game,gameSpeed:gameSpeed(this.game,this.saved?.matchup??'jev-vs-jev'),connected:this.connected(),serverTime:Date.now(),decisions:this.decisions,intents:this.intents,mode:this.roster().mode,matchup:this.saved?.matchup??'jev-vs-jev',players:this.roster().players};}
   private brainEnv():Record<string,string|undefined>{
     return this.saved?.real?{TYPESAFE_API_KEY:this.env.TYPESAFE_API_KEY,LUNA_INTERVAL_MS:this.env.LUNA_INTERVAL_MS,LUNA_TPM_BUDGET:this.env.LUNA_TPM_BUDGET,OPENAI_API_KEY:this.env.OPENAI_API_KEY,LUNA_MOCK:this.env.LUNA_MOCK,OPENROUTER_API_KEY:this.env.OPENROUTER_API_KEY,AI_GATEWAY_API_KEY:this.env.AI_GATEWAY_API_KEY,JEV_PROVIDER:this.env.JEV_PROVIDER,JEV_MODEL:this.env.JEV_MODEL,JEV_MOCK:this.env.JEV_MOCK}:{JEV_MOCK:'1'};
   }
@@ -124,7 +125,7 @@ export class GameRoom extends DurableObject<Env> {
       if(this.game.pointId!==point){this.replay=[...this.history,structuredClone(this.game)];this.history=[];this.checkpoint();}
       if(phase==='won'&&this.game.phase!=='won')this.checkpoint();
       if(this.game.tick%4===0&&this.game.phase==='play'){this.history.push(structuredClone(this.game));if(this.history.length>240)this.history.shift();}
-    });
+    },gameSpeed(this.game,this.saved.matchup));
     this.broadcast();
   }
   private remove(ws:WebSocket){
