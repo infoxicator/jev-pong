@@ -82,9 +82,9 @@ Open **Benchmark replays** from the 3D arena or visit `/arena3d.html?benchmark` 
 
 ## Cloudflare and ChatGPT
 
-Deployed web app: **https://jev-vs-jev-pong.mcp-ui-flows-nanobanana.workers.dev**
+Deployed web app: **https://jev-vs-jev-pong.jev-vs-luna.workers.dev**
 
-MCP endpoint: **https://jev-vs-jev-pong.mcp-ui-flows-nanobanana.workers.dev/mcp**
+MCP endpoint: **https://jev-vs-jev-pong.jev-vs-luna.workers.dev/mcp**
 
 In ChatGPT, open **Plugins → + → Add custom MCP server** (or the equivalent custom app/connector entry available to your account), enter the MCP endpoint, choose **no authentication**, and create/install the connection. In a new chat, select Jev Pong and ask **“Open Pong and start both AI players.”** The `open_pong` tool renders the arena; click **Start AI players** if it opens paused. Custom MCP connections must be available/enabled on your account. See [OpenAI’s connection guide](https://developers.openai.com/plugins/deploy/connect-chatgpt).
 
@@ -133,7 +133,7 @@ To reproduce hosted verification:
 ```sh
 npm run test:clock
 npm run test:worker # temporary local workerd + sandbox host; stops when tests finish
-LIVE_URL=https://jev-vs-jev-pong.mcp-ui-flows-nanobanana.workers.dev npm run test:worker -- e2e-worker/mcp.spec.ts
+LIVE_URL=https://jev-vs-jev-pong.jev-vs-luna.workers.dev npm run test:worker -- e2e-worker/mcp.spec.ts
 ```
 
 The hosted MCP test uses a real SDK client and SDK AppBridge host: HTTPS discovery/calls/resource read, sandboxed UI, authenticated WSS, scoring, spectator synchronization, replay, fullscreen, mode switching and teardown. This validates the deployed server and app protocol; installation inside your ChatGPT account remains a manual step. It does not start a persistent local demo.
