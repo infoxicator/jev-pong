@@ -1,7 +1,8 @@
 import type { HostedRoom } from './hosting';
 import type { GameState, Side, Rules } from './physics';
 import type { ArenaState, ClientMessage, ServerMessage } from './protocol';
-export interface Connection { state:ArenaState|null; canReset:boolean; side:Side|null; status:string; latency:number; received:number; onReplay:(frames:GameState[])=>void; send:(message:ClientMessage)=>void; close:()=>void }
+import type { TacticalLogEntry } from './live-tactics';
+export interface Connection { state:ArenaState|null; canReset:boolean; side:Side|null; status:string; latency:number; received:number; onReplay:(frames:GameState[])=>void; onTacticalLog?:(entries:readonly TacticalLogEntry[])=>void; send:(message:ClientMessage)=>void; close:()=>void }
 let endpoint:{origin:string;token:string}|null=null;
 /** Only used by the MCP entry point. Ordinary web URLs and same-origin checks are unchanged. */
 export function configureMcpConnection(origin:string,token:string){endpoint={origin,token};}
@@ -12,32 +13,33 @@ export function connect(requested:Side|null,hosted:HostedRoom|null=null,rules:Ru
     if(closed)return;
     const url=new URL(hosted?`/api/rooms/${hosted.room}/ws`:'/ws',endpoint?.origin??location.origin);url.protocol=url.protocol==='https:'?'wss:':'ws:';
     if(rules==='table-tennis')url.searchParams.set('rules',rules);
-    if(requested)url.searchParams.set('side',requested);if(endpoint)url.searchParams.set('mcp_token',endpoint.token);
+    if(requested)url.searchParams.set('side',requested);if(hosted?.privateView)url.searchParams.set('view','private');else if(endpoint)url.searchParams.set('mcp_token',endpoint.token);
     ws=new WebSocket(url);
     ws.onopen=()=>{c.status='CONNECTED';retry=300;if(hosted)c.send({type:'join',side:requested,token:hosted.token,rules});};
     ws.onmessage=event=>{
       if(event.data==='pong'){c.latency=Math.round(performance.now()-lastPing);return;}
       const message=JSON.parse(event.data) as ServerMessage;
-      if(message.type==='joined'){c.side=message.side;c.canReset=message.canReset??!hosted;c.status=message.reason?'PADDLE TAKEN · SPECTATING':'CONNECTED';}
+      if(message.type==='joined'){c.side=message.side;c.canReset=message.canReset??!hosted;c.status=message.reason?(message.reason.includes('already connected')?'PADDLE TAKEN · SPECTATING':message.reason):'CONNECTED';}
       if(message.type==='state'){if(c.state?.matchup!==message.matchup){awaiting=false;lastRequest=0;nextDecisionAt=0;}c.state=message;c.received=performance.now();}
       if(message.type==='pong'){c.latency=Math.round(performance.now()-message.sent);}
       if(message.type==='decision'){awaiting=false;nextDecisionAt=performance.now()+(message.decision.retryAfterMs??0);if(c.side)c.send({type:'intent',sequence:message.decision.sequence,target_y:message.decision.action.target_y});}
       if(message.type==='decision-cancelled')awaiting=false;
       if(message.type==='cooldown'){awaiting=false;nextDecisionAt=performance.now()+message.retryAfterMs;}
       if(message.type==='replay')c.onReplay(message.frames);
+      if(message.type==='tactical-log')c.onTacticalLog?.(message.entries);
     };
-    ws.onclose=event=>{if(event.reason.includes('expired'))closed=true;c.status=closed?'DISCONNECTED':'RECONNECTING';c.side=null;awaiting=false;nextDecisionAt=0;if(!closed){setTimeout(open,retry);retry=Math.min(3000,retry*1.5);}};
+    ws.onclose=event=>{if(event.code===1008||event.reason.includes('expired')){closed=true;clearInterval(agentTimer);clearInterval(pingTimer);}c.status=closed?'DISCONNECTED':'RECONNECTING';c.side=null;awaiting=false;nextDecisionAt=0;if(!closed){setTimeout(open,retry);retry=Math.min(3000,retry*1.5);}};
     ws.onerror=()=>ws?.close();
   };
   open();
-  const agentTimer=setInterval(()=>{
-    // Driven by this player window; the server proxy never chooses when to act.
+  const agentTimer=rules==='pong'?setInterval(()=>{
+    // Classic Pong keeps the existing player-window decision loop.
     if(c.side&&c.state&&c.state.game.phase!=='lobby'&&c.state.game.phase!=='won'&&performance.now()>=nextDecisionAt&&(!awaiting||performance.now()-lastRequest>2000)){
       awaiting=true;lastRequest=performance.now();c.send({type:'decide'});
     }
-  },200);
+  },200):undefined;
   let lastPing=0;
-  const pingTimer=setInterval(()=>{lastPing=performance.now();if(hosted){if(ws?.readyState===WebSocket.OPEN)ws.send('ping');}else c.send({type:'ping',sent:lastPing});},1000);
+  const pingTimer=setInterval(()=>{lastPing=performance.now();if(hosted&&rules==='pong'){if(ws?.readyState===WebSocket.OPEN)ws.send('ping');}else c.send({type:'ping',sent:lastPing});},1000);
   addEventListener('pagehide',c.close,{once:true});
   return c;
 }

@@ -13,7 +13,7 @@ test('public MCP on Workers: discovery, private capabilities, sandbox UI, shared
     const resource=(await client.readResource({uri:'ui://jev-pong/arena.html'})).contents[0];
     expect(resource.mimeType).toBe('text/html;profile=mcp-app');expect('text' in resource).toBe(true);
     if('text' in resource){expect(resource.text).not.toMatch(/<script[^>]+src=/);for(const key of ['OPENAI_API_KEY','TYPESAFE_API_KEY','api.openai.com'])expect(resource.text).not.toContain(key);}
-    const opened=await client.callTool({name:'open_pong',arguments:{}});
+    const opened=await client.callTool({name:'open_pong',arguments:{rules:'pong'}});
     expect(opened.isError).toBeUndefined();expect(JSON.stringify(opened.structuredContent)).not.toContain('token');expect(JSON.stringify(opened.content)).not.toContain('#token=');
     const conn=opened._meta!.connection as {token:string;hosted:HostedRoom};
     const getStatus=async(room:string)=>{const s=await client.callTool({name:'pong_status',arguments:{room}});expect(s.isError).toBeUndefined();return s.structuredContent as unknown as ArenaState&{timerActive:boolean;calls:number};};
@@ -23,7 +23,7 @@ test('public MCP on Workers: discovery, private capabilities, sandbox UI, shared
     const page=await contexts[0].newPage(),web=await contexts[1].newPage(),external=await contexts[2].newPage(),frames:ArenaState[]=[],errors:string[]=[],rooms=new Set<string>();
     page.on('pageerror',e=>errors.push(e.message));web.on('pageerror',e=>errors.push(e.message));
     page.on('websocket',ws=>{const room=new URL(ws.url()).pathname.split('/')[3];rooms.add(room);ws.on('framereceived',({payload})=>{if(String(payload)==='pong')return;const m=JSON.parse(String(payload));if(m.type==='state')frames.push(m);});});
-    await page.goto('http://127.0.0.1:5398');
+    await page.goto('http://127.0.0.1:5398/?rules=pong');
     await expect(page.locator('body')).toHaveAttribute('data-mcp-connected','true');
     const app=page.frameLocator('#app-frame').frameLocator('iframe[title="Jev Pong MCP App"]');
     await expect(app.locator('html')).toHaveAttribute('data-mcp-ready','true');await expect(app.locator('canvas')).toBeVisible();
@@ -52,43 +52,58 @@ test('public MCP on Workers: discovery, private capabilities, sandbox UI, shared
   }finally{await Promise.all(contexts.map(c=>c.close()));await client.close();}
 });
 
-test('two independent MCP apps share an invited room with one player each and a browser spectator',async({browser,baseURL},info)=>{
+test('3D default: embedded invite, shared mock decisions, cameras and browser spectator',async({browser,baseURL},info)=>{
   const client=new Client({name:'Split-host verification',version:'1.0.0'});
-  const contexts=await Promise.all([browser.newContext(),browser.newContext(),browser.newContext()]);
+  const contexts=await Promise.all([browser.newContext({viewport:{width:900,height:760}}),browser.newContext({viewport:{width:900,height:760}}),browser.newContext({viewport:{width:900,height:760}})]);
   try{
     await client.connect(new StreamableHTTPClientTransport(new URL('/mcp',baseURL)));
     const [left,right,watch]=await Promise.all(contexts.map(c=>c.newPage())),errors:string[]=[],frames:ArenaState[]=[];
-    let room='';const sent={left:0,right:0,watch:0};
+    let room='';const sent:string[]=[];
     for(const [page,role] of [[left,'left'],[right,'right'],[watch,'watch']] as const){
       page.on('pageerror',e=>errors.push(e.message));
       page.on('websocket',ws=>{
         if(role==='left')room=new URL(ws.url()).pathname.split('/')[3];
-        ws.on('framesent',({payload})=>{if(String(payload)==='ping')return;const m=JSON.parse(String(payload));if(m.type==='intent')sent[role]++;});
+        ws.on('framesent',({payload})=>{if(String(payload)!=='ping')sent.push(JSON.parse(String(payload)).type);});
         if(role==='watch')ws.on('framereceived',({payload})=>{if(String(payload)==='pong')return;const m=JSON.parse(String(payload));if(m.type==='state')frames.push(m);});
       });
     }
     const embedded=(page:typeof left)=>page.frameLocator('#app-frame').frameLocator('iframe[title="Jev Pong MCP App"]');
-    await left.goto('http://127.0.0.1:5398/?player=left&autoplay=1');const l=embedded(left);
+    await left.goto('http://127.0.0.1:5398/?autoplay=1&matchup=jev-vs-luna');const l=embedded(left);
+    await expect(l.locator('canvas')).toHaveAttribute('data-robots','2');
+    await expect(l.locator('#left-online')).toHaveClass(/\bon\b/);
+    await expect(l.locator('#right-online')).toHaveClass(/\bon\b/);
+    await l.getByRole('button',{name:'Copy invitation'}).click();
     await expect(l.getByRole('button',{name:'Stop left AI player'})).toBeVisible();
-    await expect(l.locator('#left-online')).toHaveText('ONLINE');await expect(l.locator('#right-online')).toHaveText('OFFLINE');
+    await expect(l.locator('#right-online')).not.toHaveClass(/\bon\b/);
     await expect(l.locator('body')).toHaveAttribute('data-phase','lobby');
     const invite=await l.getByRole('textbox',{name:'Player invitation'}).inputValue();expect(invite).toMatch(/^pong:.*:right:/);
     const bad=await client.callTool({name:'open_pong',arguments:{invite:invite.slice(0,-1)+(invite.endsWith('0')?'1':'0')}});expect(bad.isError).toBe(true);
     const wrong=await client.callTool({name:'open_pong',arguments:{invite,player:'left'}});expect(wrong.isError).toBe(true);
-    const join=await client.callTool({name:'open_pong',arguments:{invite}});expect(join.isError).toBeUndefined();
-    const conn=join._meta!.connection as {hosted:HostedRoom};expect(conn.hosted.room).toBe(room);expect(conn.hosted.token).toBe('');expect(conn.hosted.links!.owner).toBe('');expect(conn.hosted.links!.left).toBe('');expect(conn.hosted.links!.right).toContain('#token=');
+    const join=await client.callTool({name:'open_pong',arguments:{invite,rules:'pong'}});expect(join.isError).toBeUndefined();
+    expect(join.structuredContent).toMatchObject({rules:'table-tennis'});
+    const conn=join._meta!.connection as {hosted:HostedRoom};expect(conn.hosted.room).toBe(room);expect(conn.hosted.token).toBe('');expect(conn.hosted.links!.owner).toBe('');expect(conn.hosted.links!.left).toBe('');
+    expect(conn.hosted.links!.right).toContain('/arena3d.html?');expect(conn.hosted.links!.right).toContain('#token=');
+    const browserInvite=await client.callTool({name:'open_pong',arguments:{invite:conn.hosted.links!.right}});expect(browserInvite.isError).toBeUndefined();
     expect(JSON.stringify(join.structuredContent)).not.toContain('token');
-    await watch.goto(conn.hosted.links!.spectator);await expect(watch.locator('#reset')).toBeDisabled();
+    await watch.goto(`${baseURL}/?room=${room}&spectate`);await expect(watch.locator('#reset')).toBeDisabled();
     await right.goto(`http://127.0.0.1:5398/?autoplay=1&invite=${encodeURIComponent(invite)}`);const r=embedded(right);
-    await expect(r.getByRole('button',{name:'Stop right AI player'})).toBeVisible();await expect(r.locator('#reset')).toBeDisabled();
-    for(const app of [l,r]){await expect(app.locator('#left-online')).toHaveText('ONLINE');await expect(app.locator('#right-online')).toHaveText('ONLINE');}
-    await expect.poll(()=>frames.some(s=>s.game.phase==='play'&&Math.abs(s.game.ball.x-500)>80)).toBe(true);
-    await expect.poll(()=>sent.left>4&&sent.right>4).toBe(true);expect(sent.watch).toBe(0);
+    await expect(r.getByRole('button',{name:'Stop right AI player'})).toBeVisible({timeout:20_000});
+    await expect(r.locator('canvas')).toHaveAttribute('data-rendered','true',{timeout:20_000});await expect(r.locator('#reset')).toBeDisabled();
+    for(const app of [l,r]){await expect(app.locator('#left-online')).toHaveClass(/\bon\b/,{timeout:15_000});await expect(app.locator('#right-online')).toHaveClass(/\bon\b/,{timeout:15_000});}
+    await l.getByRole('button',{name:/Luna POV \(right\)/}).click();
+    await expect(l.locator('canvas')).toHaveAttribute('data-camera','right');
+    await expect(l.locator('#pace')).toHaveText('0.5× SHARED PACE');
+    await expect(l.locator('#decision-list li').first()).toBeVisible({timeout:20_000});
+    await expect.poll(()=>frames.some(s=>s.intents.left>0&&s.intents.right>0),{timeout:35_000}).toBe(true);
+    expect(sent).not.toContain('intent');expect(sent).not.toContain('decide');
     await expect.poll(()=>frames.some(s=>s.game.pointId>0),{timeout:90_000}).toBe(true);
-    const point=frames.find(s=>s.game.pointId>0)!;for(const app of [l,r]){await expect(app.locator('#score-left')).toHaveText(String(point.game.score.left));await expect(app.locator('#score-right')).toHaveText(String(point.game.score.right));}
-    await watch.screenshot({path:info.outputPath('split-host-spectator.png'),fullPage:true});
+    const point=frames.find(s=>s.game.pointId>0)!;
+    for(const app of [l,r]){await expect(app.locator('#score-left')).toHaveText(String(point.game.score.left));await expect(app.locator('#score-right')).toHaveText(String(point.game.score.right));}
+    await l.getByRole('button',{name:/Replay point/}).click();await expect(l.locator('body')).toHaveAttribute('data-replay','true');
+    await left.screenshot({path:info.outputPath('3d-embedded.png'),fullPage:true});
     await right.getByRole('button',{name:'Close app'}).click();await expect(watch.locator('#right-online')).toHaveText('OFFLINE');await expect(watch.locator('#left-online')).toHaveText('ONLINE');await expect(watch.locator('body')).toHaveAttribute('data-phase','lobby');
-    const state=await client.callTool({name:'pong_status',arguments:{room}});expect((state.structuredContent as {timerActive:boolean;calls:number}).timerActive).toBe(false);expect((state.structuredContent as {calls:number}).calls).toBe(0);
-    expect(errors).toEqual([]);console.log(`SPLIT HOST PASS: one room, independent left/right MCP controllers, browser spectator, score ${point.game.score.left}:${point.game.score.right}, intents ${sent.left}/${sent.right}, zero spectator intents/paid calls, restricted invitation and independent teardown.`);
+    const state=(await client.callTool({name:'pong_status',arguments:{room}})).structuredContent;
+    expect(state).toMatchObject({timerActive:false,calls:0,mode:'mock'});
+    expect(errors).toEqual([]);
   }finally{await Promise.all(contexts.map(c=>c.close()));await client.close();}
 });

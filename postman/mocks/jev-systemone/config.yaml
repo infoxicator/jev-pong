@@ -1,0 +1,11 @@
+version: 1
+name: jev-systemone
+slug: jev-systemone
+protocol: http
+port: 4611
+interceptRequests: true
+origin: api.typesafe.ai
+scenarios:
+  - name: default
+    path: ./default.js
+    default: true

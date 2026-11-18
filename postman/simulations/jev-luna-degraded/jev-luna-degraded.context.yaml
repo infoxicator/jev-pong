@@ -1,0 +1,88 @@
+# Simulation context — jev-luna-degraded
+#
+# Generated 2026-11-18.
+#
+# What is believed to be true about the services this simulation stands in for,
+# and what each belief rests on. A `null` is something nobody has established
+# yet.
+#
+# Written from a fixed template and never recreated. How to read it, and how to
+# write a run back into it, is in the api-simulation skill
+# (skills/api-simulation/reference/context_file.md).
+
+simulation: "jev-luna-degraded"
+generated: "2026-11-18"
+
+# What this simulation stands in for and what work it unblocks. Both need
+# hindsight, so they are the last thing to write. The members it serves, their
+# route keys and the hosts they answer for are in the .sim.yaml beside this file.
+purpose:
+  stands_in_for: >-
+    The same two providers as jev-luna-providers, degraded with one failure each: Jev hangs 1700 ms
+    (past the 1500 ms client timeout), and Luna serves 2 requests per minute and then answers 429 with Retry-After.
+  unblocks: >-
+    Proving end to end, through real HTTP and TLS, that a hung or rate-limited provider produces a
+    labeled fallback and a cooldown rather than a stalled rally or a retry storm. Wire-shape and
+    latency claims live in jev-luna-providers.context.yaml.
+
+# What the code relies on about a dependency's behaviour — one claim per entry,
+# each { id, status, claim, reason, verification, source, updated_at }.
+assumptions:
+  - id: jev-timeout-may-still-be-processed
+    status: unknown
+    claim: >-
+      When a Jev request exceeds the 1500 ms client timeout, the provider neither finishes it nor bills it.
+    reason: >-
+      The game treats a timeout as "no decision" and falls back, which is correct for play. Whether
+      the provider still completes and counts the request is what decides quota cost, and nothing
+      establishes it. Under simulation the stand-in did complete the request after the client left.
+    verification: >-
+      2026-11-18 degraded run (fingerprint sim-2026-11-18): client aborted at ~1503 ms; proxy log shows
+      the jev member served 200 after 1764 ms and the client socket hung up. That shows the stand-in's
+      behaviour only. Settle against TypeSafe's billing docs or usage dashboard for a deliberately
+      timed-out request. The same question applies to the 2 Luna timeouts of the 2026-11-17 live run.
+    source: server/jev.ts:15,23; server/benchmark-providers.ts:73-82; scripts/verify-simulation.ts (degraded)
+    updated_at: "2026-11-18"
+  - id: provider-429-carries-retry-after
+    status: unknown
+    claim: A 429 from either provider carries a Retry-After header (seconds or HTTP date) that the game should wait out.
+    reason: >-
+      Both adapters honor it, and the exhibition path also backs off exponentially without it. Whether
+      the real providers send it, and in which form, is not recorded. Only Luna's 429 was exercised here.
+    verification: >-
+      2026-11-18 degraded run: the simulation's rate_limit sent Retry-After, and both Luna paths
+      honored it (exhibition "retry in 57s", tactical retryAfterMs 57000). A Jev 429 was not exercised
+      in this simulation (scripts/verify-provider.ts covers it with a loopback fixture without Retry-After).
+    source: server/luna.ts:60-73; server/benchmark-providers.ts:46-51,80-81
+    updated_at: "2026-11-18"
+  - id: luna-429-message-names-the-quota
+    status: unknown
+    claim: >-
+      A real Luna 429 body says which quota was hit, as "on tokens per min (TPM): Limit 60,000" or the
+      RPM/RPD equivalents, which the adapter turns into a readable warning.
+    reason: >-
+      The parser was written to that format (copied into scripts/verify-luna.ts), but the simulation's
+      429 body does not use it, so the warning falls back to a generic "rate limit". That fallback held; the format itself is unverified.
+    verification: 2026-11-18 degraded run warning "Luna HTTP 429 · rate limit · retry in 57s · heuristic fallback".
+    source: server/luna.ts:64-67; scripts/verify-luna.ts:27
+    updated_at: "2026-11-18"
+  - id: degraded-providers-do-not-stall-play
+    status: supported
+    claim: >-
+      A hung Jev and a rate-limited Luna each yield exactly one attempt per decision and a labeled
+      fallback, within the client timeout.
+    reason: About the caller, exercised in the scenarios run, with one failure per member so each result is attributable.
+    verification: >-
+      2026-11-18 degraded run: Jev exhibition fallback after 1503 ms and tactical "timeout" after 1502 ms;
+      Luna sources luna, luna, fallback (429); tactical "rate-limited" with status 429. The live
+      server was not run under this simulation.
+    source: scripts/verify-simulation.ts (degraded)
+    updated_at: "2026-11-18"
+
+# What the claims above were written against: { id, date, commit, cli }.
+fingerprints:
+  - id: sim-2026-11-18
+    date: "2026-11-18"
+    commit: 944abd87dba11123765f27d382df62c6f586aad8
+    dirty: "yes — uncommitted 3D arena, tactics and MCP work, plus this simulation"
+    cli: "1.90.0"

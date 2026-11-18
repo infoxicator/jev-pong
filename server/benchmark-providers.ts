@@ -2,7 +2,7 @@ import { choice, type TypeSafeClientConfig } from '@typesafe-ai/sdk';
 import { BENCHMARK_PACE, DECISION_DEADLINE_MS, TACTIC_LABELS, type ShotRead } from '../src/benchmark';
 import { TT_PADDLE_ACCELERATION, TT_PADDLE_SPEED, TT_REACH, type TacticalShot } from '../src/table-tennis';
 import { createJevClient, type ProviderConfig } from './jev';
-import { choiceAnswer, fetchLuna, type LunaConfig } from './luna';
+import { choiceAnswer, fetchLuna, lunaCooldown, type LunaConfig } from './luna';
 
 export interface TacticalDecision {
   shot?: TacticalShot;
@@ -12,13 +12,17 @@ export interface TacticalDecision {
   retryAfterMs?: number;
 }
 export type TacticalBrain = (read: ShotRead) => Promise<TacticalDecision>;
-const instruction = [
-  'You are returning a shot in open-table robot table tennis. Choose one feasible return to win the point.',
-  'A shared motor controller positions the racket and executes the chosen shot.',
-  'Coordinates are in pixels. For landingDepth, 0 is your end, 500 the net, 1000 the opponent’s end.',
-  `The opponent starts moving ${DECISION_DEADLINE_MS} ms after your return. Its speed is at most ${TT_PADDLE_SPEED * BENCHMARK_PACE} px/s with ${TT_PADDLE_ACCELERATION * BENCHMARK_PACE ** 2} px/s² acceleration and a racket reach of ${TT_REACH} px.`,
-  'Opponent travel is the predicted lateral displacement to center the racket.',
-].join(' ');
+function shotInstructions(read: ShotRead) {
+  const pace = read.pace ?? BENCHMARK_PACE;
+  const reaction = read.opponentReactionMs ?? DECISION_DEADLINE_MS;
+  return [
+    'You are returning a shot in open-table robot table tennis. Choose one feasible return to win the point.',
+    'A shared motor controller positions the racket and executes the chosen shot.',
+    'Coordinates are in pixels. For landingDepth, 0 is your end, 500 the net, 1000 the opponent’s end.',
+    `The opponent starts moving ${reaction} ms after your return. Its speed is at most ${TT_PADDLE_SPEED * pace} px/s with ${TT_PADDLE_ACCELERATION * pace ** 2} px/s² acceleration and a racket reach of ${TT_REACH} px.`,
+    'Opponent travel is the predicted lateral displacement to center the racket.',
+  ].join(' ');
+}
 const question = 'Which return should the robot play?';
 function describe(read: ShotRead) {
   return {
@@ -27,6 +31,8 @@ function describe(read: ShotRead) {
     incomingY: Math.round(read.contactY),
     contactHeightMeters: Math.round(read.contactHeight * 100) / 100,
     incomingFlightMs: Math.round(read.flightMs),
+    ...(read.rally === undefined ? {} : { rally: read.rally }),
+    ...(read.matchContext ? { match: read.matchContext } : {}),
     options: read.options.map(option => ({
       id: option.shot,
       landingDepth: 1000 - Math.round(option.landing.x),
@@ -62,7 +68,7 @@ export function tacticalJev(config: ProviderConfig, transport?: TypeSafeClientCo
     try {
       const { answers } = await client.systemOne({
         model: config.model,
-        state: { instruction, situation: describe(read) },
+        state: { instruction: shotInstructions(read), situation: describe(read) },
         questions: { shot: choice(question, Object.fromEntries(options.map(option => [option.value, option.description]))) },
       }, { signal: AbortSignal.timeout(1500) });
       answer = answers.shot?.choice;
@@ -83,15 +89,17 @@ export function tacticalLuna(config: LunaConfig, transport?: typeof fetch): Tact
     try {
       response = await fetchLuna(config, {
         model: config.model,
-        input: [{ role: 'user', content: [{ type: 'input_text', text: instruction }, { type: 'input_json', data: describe(read) }] }],
+        input: [{ role: 'user', content: [{ type: 'input_text', text: shotInstructions(read) }, { type: 'input_json', data: describe(read) }] }],
         questions: [{ type: 'choice', name: 'shot', instructions: question, choices: options }],
       }, transport);
       if (response.status === 429) return { ms: ms(), error: 'rate-limited', status: 429, retryAfterMs: retryAfter(response) };
       if (!response.ok) return { ms: ms(), error: 'unavailable', status: response.status };
-      const body = await response.json() as { answers?: unknown; model?: string };
+      const body = await response.json() as { answers?: unknown; model?: string; usage?: {input_tokens?:number} };
       if (!/^gpt-6-luna(?:-|$)/.test(body.model ?? '')) return { ms: ms(), error: 'invalid', status: response.status };
       const answer = choiceAnswer(body.answers, 'shot', options.map(option => option.value));
-      return { ms: ms(), shot: options.find(option => option.value === answer.choice)!.value };
+      const tokens = body.usage?.input_tokens;
+      const validTokens = typeof tokens === 'number' && Number.isFinite(tokens) && tokens >= 0 ? tokens : 0;
+      return { ms: ms(), shot: options.find(option => option.value === answer.choice)!.value, retryAfterMs: lunaCooldown(config,response,validTokens) };
     } catch (error) {
       return { ms: ms(), status: response?.status, error: response?.ok ? 'invalid' : failure(error) };
     }

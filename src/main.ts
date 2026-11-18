@@ -3,7 +3,6 @@ import '@fontsource/space-grotesk/latin-500.css';
 import '@fontsource/space-grotesk/latin-600.css';
 import '@fontsource/space-grotesk/latin-700.css';
 import '@fontsource/space-mono/latin-400.css';
-import './style.css';
 import { createGame, WIN_SCORE, type GameState, type Side } from './physics';
 import { createRenderer } from './canvas';
 import { connect, createInterpolator } from './network';

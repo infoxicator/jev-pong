@@ -1,4 +1,5 @@
 import { newTableTennis,startTableTennis,stepTableTennis,type TableTennis } from './table-tennis';
+import type { HardMatch } from './hard-match';
 export type Side = 'left' | 'right';
 export const SIDES: Side[] = ['left', 'right'];
 export const W = 1000, H = 560, PADDLE_H = 86, PADDLE_W = 12, INSET = 34, R = 7;
@@ -12,8 +13,8 @@ export interface GameState {
   phase: Phase; countdown: number; rally: number; bestRally: number; pointId: number; lastScorer: Side | null;
 }
 export const clamp = (v: number, min: number, max: number) => Math.max(min, Math.min(max, v));
-export function createGame(rules:Rules='pong'): GameState {
-  return { ...(rules==='table-tennis'?{tt:newTableTennis()}:{}), tick: 0, ball: { x: W/2, y: H/2, vx: 430, vy: 148 }, paddles: { left: H/2, right: H/2 }, targets: { left: H/2, right: H/2 }, score: { left: 0, right: 0 }, phase: 'lobby', countdown: 1.2, rally: 0, bestRally: 0, pointId: 0, lastScorer: null };
+export function createGame(rules:Rules='pong', hard?:HardMatch): GameState {
+  return { ...(rules==='table-tennis'?{tt:newTableTennis(hard)}:{}), tick: 0, ball: { x: W/2, y: H/2, vx: 430, vy: 148 }, paddles: { left: H/2, right: H/2 }, targets: { left: H/2, right: H/2 }, score: { left: 0, right: 0 }, phase: 'lobby', countdown: 1.2, rally: 0, bestRally: 0, pointId: 0, lastScorer: null };
 }
 export function startServe(s: GameState) { if(s.tt){startTableTennis(s);return;}s.phase = 'serve'; s.countdown = 1.2; }
 export function setIntent(s: GameState, side: Side, target: number) { if (Number.isFinite(target)) s.targets[side] = clamp(target, PADDLE_H/2, H-PADDLE_H/2); }

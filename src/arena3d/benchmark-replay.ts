@@ -38,10 +38,7 @@ export function startBenchmarkReplay(
   const replayButton = $('benchmark-play') as HTMLButtonElement;
   const status = $('benchmark-status');
   controls.hidden = false;
-  document.querySelector<HTMLElement>('.agent-panels')!.hidden = true;
-  document.querySelector<HTMLElement>('.scoreboard')!.hidden = true;
   document.querySelector<HTMLElement>('.rally-stat')!.hidden = true;
-  document.querySelector<HTMLElement>('.match-heading h1')!.textContent = 'Decision benchmark';
   $('classic').textContent = 'Live exhibition ↗';
   $('classic').setAttribute('href', '/arena3d.html?spectate');
   $('replay').hidden = true;

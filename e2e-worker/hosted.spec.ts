@@ -100,14 +100,16 @@ test('Cloudflare room: independent browser loops, scoring, protected seats/reset
   }finally{await Promise.all(contexts.map(c=>c.close()));}
 });
 
-test('isolated rooms, capability rejection, durable paid budget and message limits',async({browser,request,baseURL})=>{
+test('isolated rooms, capability rejection, legacy live room rejection and message limits',async({browser,request,baseURL})=>{
   const create=async()=>{const r=await request.post('/api/rooms',{headers:{Origin:baseURL!}});expect(r.status()).toBe(201);return await r.json() as RoomLinks;};
   const a=await create(),b=await create();expect(a.room).not.toBe(b.room);
   const headers={Authorization:`Bearer ${ownerToken(a)}`};
   expect((await request.get(`/api/rooms/${b.room}/status`,{headers})).status()).toBe(403);
   if(!process.env.LIVE_URL){
-    // Force a true object cold start after a durable budget reservation, without provider traffic.
-    const exhausted=await request.get(`/api/rooms/${a.room}/budget-exhausted`);expect(exhausted.status()).toBe(500);
+    // A legacy live room must stay inaccessible even with its original owner capability.
+    const legacy=await create();
+    expect((await request.get(`/api/rooms/${legacy.room}/legacy-live`)).status()).toBe(500);
+    expect((await request.get(`/api/rooms/${legacy.room}/status`,{headers:{Authorization:`Bearer ${ownerToken(legacy)}`}})).status()).toBe(410);
   }
   const context=await browser.newContext(),page=await context.newPage();
   try{
@@ -143,10 +145,10 @@ test('isolated rooms, capability rejection, durable paid budget and message limi
       for(const ws of extras)ws.close();left.close();right.close();return {decision,codes,capped};
     },a);
     expect(result.codes).toEqual([1009,1008]);expect(result.capped).toBe(true);
-    if(!process.env.LIVE_URL){expect(result.decision.source).toBe('fallback');expect(result.decision.warning).toContain('budget exhausted');}
+    expect(result.decision.source).toBe('mock');
     const status=await (await request.get(`/api/rooms/${a.room}/status`,{headers})).json();expect(status.intents.left).toBe(1);
     await expect.poll(async()=>(await (await request.get(`/api/rooms/${a.room}/status`,{headers})).json()).timerActive).toBe(false);
-    if(!process.env.LIVE_URL)expect(status.calls).toBe(1200);
+    expect(status.calls).toBe(0);
     const other=await (await request.get(`/api/rooms/${b.room}/status`,{headers:{Authorization:`Bearer ${ownerToken(b)}`}})).json();expect(other.game.tick).toBe(0);expect(other.mode).toBe('mock');expect(other.connected).toEqual({left:false,right:false});
   }finally{await context.close();}
 });

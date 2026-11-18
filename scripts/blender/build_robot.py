@@ -145,8 +145,10 @@ tool=pivot('Racket',(.30,-.56,1.19),right_hand)
 def blade(name,center,rx,rz,depth,mat):
     x,y,z=center;n=64
     verts=[(x+rx*math.cos(i*2*math.pi/n),y+d,z+rz*math.sin(i*2*math.pi/n)) for d in [-depth/2,depth/2] for i in range(n)]
-    faces=[tuple(range(n-1,-1,-1)),tuple(range(n,2*n))]
-    faces += [(i,(i+1)%n,(i+1)%n+n,i+n) for i in range(n)]
+    # An increasing X/Z ring has a -Y normal. Wind the lower cap and walls
+    # accordingly so the bevel and both rubber faces shade outward.
+    faces=[tuple(range(n)),tuple(range(2*n-1,n-1,-1))]
+    faces += [(i,i+n,(i+1)%n+n,(i+1)%n) for i in range(n)]
     mesh=bpy.data.meshes.new(name);mesh.from_pydata(verts,[],faces);mesh.update()
     obj=bpy.data.objects.new(name,mesh);bpy.context.collection.objects.link(obj)
     finish(obj,name,mat,tool,.0006)

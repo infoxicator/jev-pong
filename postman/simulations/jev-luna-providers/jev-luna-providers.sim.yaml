@@ -1,0 +1,23 @@
+# Jev (TypeSafe System One) and Luna (OpenAI Decisions) stand-ins at their observed latency.
+# Context and evidence: jev-luna-providers.context.yaml. How to run: postman/simulations/README.md.
+simulation: jev-luna-providers
+routing: path
+mocks:
+  - name: jev-systemone
+    routeKey: jev
+    origin:
+      - api.typesafe.ai
+    path: postman/mocks/jev-systemone
+    scenarios:
+      - overrides:
+          conditions:
+            latency: { delay_ms: 164 }
+  - name: luna-decisions
+    routeKey: luna
+    origin:
+      - api.openai.com
+    path: postman/mocks/luna-decisions
+    scenarios:
+      - overrides:
+          conditions:
+            latency: { delay_ms: 285 }

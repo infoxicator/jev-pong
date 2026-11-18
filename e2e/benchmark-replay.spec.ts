@@ -33,7 +33,7 @@ test('replays a model’s shot and landing without opening a live match', async 
   await expect(page.locator('canvas')).toHaveAttribute('data-robots', '2');
   await page.getByRole('button', { name: 'Replay shot' }).click();
   await expect(page.locator('body')).toHaveAttribute('data-benchmark-stage', 'deciding');
-  await page.getByRole('button', { name: /Chaos POV/ }).click();
+  await page.getByRole('button', { name: /Right POV/ }).click();
   await expect(page.locator('canvas')).toHaveAttribute('data-camera', 'right');
   await page.setViewportSize({ width: 390, height: 844 });
   expect(await page.evaluate(() => document.documentElement.scrollWidth <= innerWidth)).toBe(true);

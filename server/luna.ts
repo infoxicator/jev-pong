@@ -21,6 +21,12 @@ export function choiceAnswer(answers: unknown, name: string, allowed: string[]):
 export function fetchLuna(config:LunaConfig,request:unknown,transport:typeof fetch=fetch){
   return transport(`${config.baseURL.replace(/\/$/, '')}/decisions`, { method: 'POST', headers: { Authorization: `Bearer ${config.apiKey}`, 'Content-Type': 'application/json' }, body: JSON.stringify(request), signal: AbortSignal.timeout(1500) });
 }
+export function lunaCooldown(config:LunaConfig, response:Response, inputTokens=0){
+  // Reserve 20% headroom using the tighter configured or provider budget.
+  const limits=[config.tokensPerMinute,...['x-ratelimit-limit-tokens','x-ratelimit-limit-project-tokens'].map(h=>Number(response.headers.get(h)))].filter(n=>n>0&&Number.isFinite(n));
+  const rpm=Number(response.headers.get('x-ratelimit-limit-requests'));
+  return Math.max(config.intervalMs,Math.ceil(inputTokens*60000/(Math.min(...limits)*.8)),rpm>0?Math.ceil(60000/(rpm*.8)):0);
+}
 export function lunaRequest(s: Snapshot) {
   const persona = PERSONAS[s.side];
   return {
@@ -73,11 +79,7 @@ export function createLunaBrain(config: LunaConfig, transport: typeof fetch = fe
       const taunt = choiceAnswer(result.answers, 'taunt', ['line_0', 'line_1', 'line_2', 'line_3']);
       const usage='usage' in result?result.usage as {input_tokens?:unknown}:undefined;
       if(typeof usage?.input_tokens==='number'&&Number.isFinite(usage.input_tokens)&&usage.input_tokens>=0)api.inputTokens=usage.input_tokens;
-      // Reserve 20% headroom. Use the tighter configured/provider TPM budget when available.
-      const limits=[config.tokensPerMinute,...['x-ratelimit-limit-tokens','x-ratelimit-limit-project-tokens'].map(h=>Number(response.headers.get(h)))].filter(n=>n>0&&Number.isFinite(n));
-      retryAfterMs=Math.max(config.intervalMs,Math.ceil((api.inputTokens??0)*60000/(Math.min(...limits)*.8)));
-      const rpm=Number(response.headers.get('x-ratelimit-limit-requests'));
-      if(rpm>0)retryAfterMs=Math.max(retryAfterMs,Math.ceil(60000/(rpm*.8)));
+      retryAfterMs=lunaCooldown(config,response,api.inputTokens);
       failures=0;
       const index = Number(target.choice.replace('lane_', ''));
       return { source: 'luna', sequence, responseMs: Math.round(performance.now() - start), retryAfterMs, api, action: { target_y: clamp(PADDLE_H / 2 + index * (H - PADDLE_H) / 16, PADDLE_H / 2, H - PADDLE_H / 2), move: move.choice as 'up' | 'down' | 'stay', taunt: PERSONAS[s.side].taunts[Number(taunt.choice.replace('line_', ''))], confidence: target.confidence } };

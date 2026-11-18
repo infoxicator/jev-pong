@@ -55,15 +55,23 @@ Rebuild the asset using installed Blender:
 /Applications/Blender.app/Contents/MacOS/Blender --background --factory-startup --python scripts/blender/build_robot.py -- "$PWD"
 ```
 
-The 3D game uses an open 2.74 m table with no side panels or invisible rebound walls. It selects a separate **table-tennis ruleset** on the same authoritative 120 Hz server: actual ball height, gravity, spin, table/net collisions, own-side then receiver-side service bounces, out/long/double-bounce faults, and games to 11 with a two-point lead. Service changes every two points, then every point at deuce ([rules reference](https://www.usatt.org/rules-of-table-tennis)). Deep corner placements, narrower reach, accelerating drives, topspin, pushes, defensive lobs and high-ball smashes demand timely positioning.
+The 3D game uses an open 2.74 m table with ball height, gravity, spin, table and net collisions, and a fixed contact zone. It plays to 11 with a two-point lead. Service changes every two points and then every point at deuce. The renderer animates the racket from the authoritative strike position and replays the actual bounce and contact. [Table-tennis rules](https://www.usatt.org/rules-of-table-tennis)
 
-Each AI still chooses paddle positioning through the existing structured intent API. A deterministic local stroke controller selects the shot from contact height, reach and opponent position; shot selection is not an extra AI call. A crouched stance, torso weight transfer, forehand/backhand preparation, wrist rotation, balanced free arm and staggered shuffle steps animate the original articulated Blender model. Racket contact uses the authoritative strike position. The eye camera follows the actual robot head, and replay interpolates recorded height and contacts.
+**The 3D arena is a tactical match.** A shared local controller starts moving each robot toward its intercept as soon as the opponent hits, subject to the same paddle speed, acceleration and reach limits. Each opponent stroke opens at most one model decision for the receiving seat. Both models choose from the same feasible return profiles: safe, deep corner or short drop. The server allows up to 750 ms, shortened for balls approaching contact, then applies the choice at a fixed physics tick. Late, unavailable or budget-limited decisions use a local return and are labeled in the shot card. Stale answers are discarded when the stroke, point or match changes. Drives gain pace and spread during a rally so sustained exchanges can still end in a point.
 
-**Jev vs Luna in the 3D arena runs at 0.5× shared pace**, shown beside the tick readout. Ball flight, both robots, gravity, spin and game timers advance together using unchanged 120 Hz simulation substeps; snapshots still arrive at 30 Hz wall time. This gives slower decisions more time to arrive without granting Luna extra reach, auto-aim or faster movement. Jev vs Jev and classic Pong retain 1× pace. API polling and quota cooldowns stay on real time. Node and Workers use the same clock and pace policy. Replies made stale by a point change or reset explicitly cancel the pending client request; provider cooldowns remain enforced.
+**Jev vs Luna in 3D runs at 0.5× shared pace.** Ball flight, both robots, gravity, spin and game timers advance together in 120 Hz simulation substeps. The server publishes snapshots at 30 Hz wall time and enforces provider cooldowns and hosted room budgets. Jev vs Jev and classic Pong run at 1×. Classic Pong keeps its polling and paddle-position decisions.
 
-The first player in an empty lobby selects the ruleset; both players must open the same page type. Start a separate server/room for simultaneous original Pong and table tennis. Reset/reconnect preserve the current rules. The original `/` UI and default Pong rules remain available; `/?spectate` can also show the 2D projection of a 3D match. This is a deterministic table-tennis simulation with procedural robot motion, not a complete rigid-body or human-motion simulator. WebGL 2 is required; model/render errors disconnect the player. Existing MCP presentation is unchanged.
+The first player in an empty lobby selects the ruleset; both players must open the same page type. Start a separate server/room for simultaneous original Pong and table tennis. Reset/reconnect preserve the current rules. The original `/` UI and default Pong rules remain available; `/?spectate` can also show the 2D projection of a 3D match. This is a deterministic table-tennis simulation with procedural robot motion, not a complete rigid-body or human-motion simulator. WebGL 2 is required; model/render errors disconnect the player. The hosted MCP view uses the same 3D court, robot motion, camera controls and decision log.
 
-`npm run demo:3d:smoke` opens all three views headlessly with mocks, then closes them. `npm run test:e2e -- e2e/arena3d.spec.ts` verifies loaded Blender geometry and real WebGL rendering, the opposing eye cameras, both independent intent loops, ball/paddle movement and a scored point, shared 2D/3D score, replay, camera switching, mobile layout and player leave.
+`npm run demo:3d:smoke` opens all three views headlessly with mocks, then closes them. `npm run test:tactics` checks the shared decision tick, stale replies, quota behavior and rally length with deterministic fixtures. `npm run test:e2e -- e2e/arena3d.spec.ts` verifies both seats make server-triggered choices, the robots render and score, and spectator, replay and camera controls work.
+
+### Hard difficulty
+
+Open the 3D arena and expand **Difficulty** below the court. Choose **Hard** and **Start match**. Hard uses seeded opening positions and serves, and offers a down-the-line return when the physics allows it. Each side gets the same serve patterns across a service rotation. Points use the normal full-rally scoring and matches still go to 11, win by two.
+
+Choose **Model vs model** for the head-to-head, or select **Defender**, **Attacker**, or **Placement** to face a scripted opponent. Each favors a different shot. Only the selected model seat needs a player window, and the decision log identifies scripted shots. To compare Jev and Luna against the same script, select each model in turn and reuse the seed. The selected model serves first in both matches. **New seed** generates another set of openings.
+
+Choose **Standard** to return to the original demo. Use `JEV_MOCK=1 LUNA_MOCK=1 npm run demo:3d -- --matchup=jev-vs-luna` to try either difficulty without model usage.
 
 ## Jev vs Luna decision benchmark
 
@@ -86,9 +94,9 @@ Deployed web app: **https://jev-vs-jev-pong.jev-vs-luna.workers.dev**
 
 MCP endpoint: **https://jev-vs-jev-pong.jev-vs-luna.workers.dev/mcp**
 
-In ChatGPT, open **Plugins → + → Add custom MCP server** (or the equivalent custom app/connector entry available to your account), enter the MCP endpoint, choose **no authentication**, and create/install the connection. In a new chat, select Jev Pong and ask **“Open Pong and start both AI players.”** The `open_pong` tool renders the arena; click **Start AI players** if it opens paused. Custom MCP connections must be available/enabled on your account. See [OpenAI’s connection guide](https://developers.openai.com/plugins/deploy/connect-chatgpt).
+In ChatGPT, open **Plugins → + → Add custom MCP server** (or the equivalent custom app/connector entry available to your account), enter the MCP endpoint, choose **no authentication**, and create/install the connection. In a new chat, select Jev Pong and ask **“Open Pong and start both AI players.”** The `open_pong` tool renders the 3D table-tennis arena; click **Start AI players** if it opens paused. Custom MCP connections must be available/enabled on your account. See [OpenAI’s connection guide](https://developers.openai.com/plugins/deploy/connect-chatgpt).
 
-**Public hosted games always use mock brains**, including Jev vs Luna. Testing ChatGPT does not use your provider keys or AI tokens. Without an invitation, hosted `open_pong({autoplay?, matchup?, player?})` creates a separate 15-minute room; `open_pong({invite, autoplay?})` joins the invited seat in that existing room. `pong_status({room})` reads that MCP room without starting agents. The plain web app creates its own room and provides Vector, Chaos and spectator links in **YOUR PRIVATE MATCH LINKS**. Keep both player windows open, or use the MCP app’s two built-in controllers. A missing player pauses physics. Closing/stopping the MCP app disconnects its controllers; an idle room has no active physics interval and can hibernate. A room expires after 15 minutes.
+**Public hosted games always use mock brains**, including Jev vs Luna. Testing ChatGPT does not use your provider keys or AI tokens. Without an invitation, hosted `open_pong({autoplay?, matchup?, player?, rules?})` creates a separate 15-minute room. The default rules are `table-tennis`. Pass `rules: "pong"` for classic 2D Pong. `open_pong({invite, autoplay?})` joins the invited seat with the rules of that existing room. `pong_status({room})` reads that MCP room without starting agents. The plain web app creates its own room and provides Vector, Chaos and spectator links in **YOUR PRIVATE MATCH LINKS**. Keep both player windows open, or use the MCP app’s two built-in controllers. A missing player pauses standard mock matches. Closing/stopping the MCP app disconnects its controllers; an idle room has no active physics interval and can hibernate. A room expires after 15 minutes.
 
 ### One player in ChatGPT, the other in Claude
 
@@ -122,11 +130,37 @@ flowchart LR
 To deploy a change using a Cloudflare account with Workers/Durable Objects permissions:
 
 ```sh
-npx wrangler login
-npm run deploy
+npx wrangler whoami
+npx wrangler deployments list --name jev-vs-jev-pong
+npm run build
+npx wrangler deploy --keep-vars
 ```
 
-The checked-in `wrangler.jsonc` targets the existing `jev-vs-jev-pong` Worker and account; adjust its account/name for your own deployment. Secrets are **not** loaded from `.env.local` on Cloudflare. To enable owner-created private live rooms, configure Worker secrets with `npx wrangler secret put ROOM_CREATE_TOKEN`, `TYPESAFE_API_KEY` (direct Jev), and optionally `OPENAI_API_KEY` (Luna); `JEV_PROVIDER=typesafe` can be a Worker variable. Never share the room-creation token. Create a live room by POSTing `/api/rooms` with a same-origin `Origin` header and `Authorization: Bearer <ROOM_CREATE_TOKEN>`; returned fragment links are private owner/seat capabilities. Without that authorization, room creation always forces mocks even if provider secrets exist. MCP tools always create mocks. Private live rooms have a durable 1,200 paid-attempt budget and respect provider cooldowns. This is capability access, not email/Cloudflare Access identity authentication.
+The checked-in `wrangler.jsonc` targets the `jev-vs-jev-pong` Worker in the `jev-vs-luna` account. Check that Wrangler reports account ID `06a4713985a56e5369e4618960cf5b70` and lists the current deployment before uploading. `--keep-vars` preserves dashboard variables. Cloudflare gets its provider secrets from Worker bindings.
+
+### Owner-only live matches
+
+Protect exactly **`https://jev-vs-jev-pong.jev-vs-luna.workers.dev/owner/live`** with a **self-hosted Cloudflare Access application**. The same path serves the confirmation page and receives the POST. In Zero Trust, enable email **One-time PIN** as the application's login method. Add a single **Allow** policy whose **Emails** include rule contains Ruben’s exact verified sign-in address. Keep `/mcp`, the public app and `/api/live-pair` outside the Access application. [Cloudflare Worker Access paths](https://developers.cloudflare.com/workers/configuration/cloudflare-access/)
+
+Set these variables and secrets on **this Worker**.
+
+| Binding | Value |
+| --- | --- |
+| `ACCESS_ISSUER` | Access team origin, for example `https://<team>.cloudflareaccess.com`, without a trailing slash |
+| `ACCESS_AUD` | Application Audience tag for the exact `/owner/live` Access application |
+| `ACCESS_OWNER_EMAIL` | Exact verified email from the Allow policy, including case |
+| `TYPESAFE_API_KEY` | Worker secret for live Jev |
+| `OPENAI_API_KEY` | Optional Worker secret for live Luna. Without it Luna uses the mock brain. |
+
+Click **Start live match** in the MCP view. Sign in in the top-level browser, check that the pairing code on the confirmation page matches your MCP view, choose a matchup and confirm. The initiating view picks up the private broadcast automatically. Pairing expires after five minutes and can be claimed once using a verifier held in that view. Its private socket can watch and replay. Only a fresh Access-authenticated confirmation starts another game. The match runs server-side until one game finishes or 15 minutes elapse, with a durable maximum of 1,200 paid attempts per game and provider cooldowns. A Worker restart stops the game. The legacy room token grants no live privileges.
+
+To check Access setup without spending provider quota, open **Start live match**, complete the owner PIN login, verify that the confirmation page shows the same code, and close the page before submitting. In a separate private browser session, check that an email outside the Allow policy cannot see the confirmation page. The local fixture exercises confirmation and playback with a simulated owner and provider.
+
+```sh
+npm run build
+npm test
+npm run test:worker -- e2e-worker/owner-live.spec.ts e2e-worker/mcp.spec.ts
+```
 
 To reproduce hosted verification:
 
@@ -136,7 +170,7 @@ npm run test:worker # temporary local workerd + sandbox host; stops when tests f
 LIVE_URL=https://jev-vs-jev-pong.jev-vs-luna.workers.dev npm run test:worker -- e2e-worker/mcp.spec.ts
 ```
 
-The hosted MCP test uses a real SDK client and SDK AppBridge host: HTTPS discovery/calls/resource read, sandboxed UI, authenticated WSS, scoring, spectator synchronization, replay, fullscreen, mode switching and teardown. This validates the deployed server and app protocol; installation inside your ChatGPT account remains a manual step. It does not start a persistent local demo.
+The hosted MCP test uses a real SDK client and SDK AppBridge host: HTTPS discovery/calls/resource read, sandboxed classic and 3D UI, authenticated WSS, scoring, spectator synchronization, replay, camera and fullscreen controls, invitation handoff and teardown. This validates the deployed server and app protocol; installation inside your ChatGPT account remains a manual step. It does not start a persistent local demo.
 
 ## Local MCP App
 
@@ -154,7 +188,7 @@ To attach the local host to an already-running updated game, first run `npm run 
 
 - **`open_pong({ autoplay?: boolean })`** opens the arena, read-only by default. `autoplay: true` connects one controller per empty seat when the UI mounts. Existing web players retain their seats.
 - **`pong_status({})`** reads authoritative score, connectivity, accepted intents and latest decision metadata, without making provider calls.
-- **`ui://jev-pong/arena.html`** is the linked resource with MIME type `text/html;profile=mcp-app`. `vite-plugin-singlefile` bundles the shared canvas renderer, styles and local fonts into one HTML file.
+- **`ui://jev-pong/arena.html`** is the linked resource with MIME type `text/html;profile=mcp-app`. `vite-plugin-singlefile` bundles the shared rendering code, styles and local fonts into one HTML file. The hosted 3D view fetches the robot model from the game Worker.
 
 `demo:mcp` defaults to **mock mode**, even when `.env.local` contains keys. Use `JEV_MOCK=0 npm run demo:mcp` to explicitly enable configured paid providers, and `PONG_MATCHUP=jev-vs-luna` for Luna at startup or select it in the UI. Opening a read-only view starts no AI calls. **Start AI players** can incur charges in live mode; existing pacing and fallback labels apply.
 

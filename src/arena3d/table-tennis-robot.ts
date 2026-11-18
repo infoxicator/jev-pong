@@ -18,39 +18,56 @@ export function createTableTennisRobot(root:THREE.Group,side:Side){
       const tt=game.tt!,stroke=tt.strokes[side],since=stroke?(game.tick-stroke.tick)/120:10;
       const reset=!initialized||time<lastTime||time-lastTime>.3;
       const incoming=game.phase==='play'&&game.ball.vx*sign<0;
-      const predicted=projectTableTennis(game.ball,tt,side),reachable=incoming&&Math.abs(predicted.y-game.paddles[side])<=TT_REACH+8;
-      const approach=reachable?THREE.MathUtils.smoothstep(.42-predicted.time,0,.42):0;
-      const windup=Math.sin(approach*Math.PI),follow=since>=0&&since<.42?Math.sin(since/.42*Math.PI):0;
+      const predicted=projectTableTennis(game.ball,tt,side);
+      const offsetY=predicted.y-game.paddles[side];
+      const reachable=incoming&&Math.abs(offsetY)<=TT_REACH+8;
+      // Blend the preparation near the reach and handedness boundaries. The
+      // authoritative stroke still supplies the exact contact and stroke hand.
+      const reachWeight=incoming?1-THREE.MathUtils.smoothstep(Math.abs(offsetY),TT_REACH,TT_REACH+48):0;
+      const approachPhase=incoming?THREE.MathUtils.smoothstep(.42-predicted.time,0,.42):0;
+      const approach=reachWeight*approachPhase;
+      const windup=reachWeight*Math.sin(approachPhase*Math.PI),follow=since>=0&&since<.42?Math.sin(since/.42*Math.PI):0;
       const recovery=since>=0&&since<.48?1-THREE.MathUtils.smoothstep(since,.22,.48):0;
       const serving=game.phase==='serve'&&tt.server===side;
-      const hand=stroke&&since<.48?stroke.hand:(predicted.y-game.paddles[side])*sign>0?'backhand':'forehand';
-      const forehand=hand!=='backhand',swingSign=forehand?1:-1;
-      const expectedHeight=reachable?THREE.MathUtils.clamp(predicted.height,.88,1.5):stroke?THREE.MathUtils.lerp(1.04,THREE.MathUtils.clamp(stroke.height,.88,1.5),recovery):1.04;
-      const crouch=-.16+THREE.MathUtils.clamp((expectedHeight-1.05)*.20,-.04,.06);
+      const servePrep=serving?THREE.MathUtils.smoothstep(.8-game.countdown,0,.8):0;
+      const serveGesture=Math.sin(servePrep*Math.PI);
+      const readySwing=1-2*THREE.MathUtils.smoothstep(offsetY*sign,-28,28);
+      const swing=THREE.MathUtils.lerp(readySwing,stroke?.hand==='backhand'?-1:1,recovery);
+      const expectedHeight=THREE.MathUtils.clamp(predicted.height,.88,1.5);
+      const poseHeight=1.04+(expectedHeight-1.04)*approach
+        +(stroke?(THREE.MathUtils.clamp(stroke.height,.88,1.5)-1.04)*recovery:0);
+      const crouch=-.16+THREE.MathUtils.clamp((poseHeight-1.05)*.20,-.04,.06);
       root.position.set(robotX(side,true)+sign*(.025*Math.max(approach,recovery)+.045*follow),crouch,lane(game.paddles[side])+sign*.08);
-      root.rotation.set(0,baseYaw+swingSign*(.20*windup-.24*follow)+(serving?.18:0),-sign*.065);
+      root.rotation.set(0,baseYaw+swing*(.20*windup-.24*follow)+.18*serveGesture,-sign*.065);
       limbs.forEach((o,i)=>o.quaternion.copy(rest[i]));root.updateWorldMatrix(true,true);
       const target=new THREE.Vector3(strikeX(side,true)-sign*.08,1.03,lane(game.paddles[side]));
-      if(reachable){target.y=THREE.MathUtils.lerp(target.y,expectedHeight,approach);target.z=THREE.MathUtils.lerp(target.z,lane(predicted.y),approach);target.x+=sign*.08*approach;}
-      target.x-=sign*.11*windup;target.z-=sign*swingSign*.16*windup;target.y-=.07*windup;
+      target.y=THREE.MathUtils.lerp(target.y,expectedHeight,approach);
+      target.z+=SCALE*THREE.MathUtils.clamp(offsetY,-TT_REACH,TT_REACH)*approach;
+      target.x+=sign*(.08*approach-.11*windup);target.z-=sign*swing*.16*windup;target.y-=.07*windup;
       if(stroke&&recovery>0){
         // The follow-through travels with the recovering torso after contact.
         const recoverLane=THREE.MathUtils.smoothstep(since,0,.24);
         const hit=new THREE.Vector3(strikeX(side,true),stroke.height,THREE.MathUtils.lerp(lane(stroke.y),lane(game.paddles[side]),recoverLane));
-        hit.x+=sign*.06*follow;hit.z+=sign*swingSign*.14*follow;hit.y+=(stroke.kind==='smash'?-.12:.16)*follow;
+        hit.x+=sign*.06*follow;hit.z+=sign*swing*.14*follow;hit.y+=(stroke.kind==='smash'?-.12:.16)*follow;
         target.lerp(hit,recovery);
       }
-      if(serving){const prep=THREE.MathUtils.smoothstep(.8-game.countdown,0,.8);target.set(strikeX(side,true)-sign*.13*Math.sin(prep*Math.PI),1.07,lane(game.paddles[side])-sign*.14*Math.sin(prep*Math.PI));}
+      if(serving){
+        target.x+=sign*(.08*servePrep-.13*serveGesture);
+        target.y=THREE.MathUtils.lerp(target.y,1.12,servePrep);
+        target.z-=sign*.14*serveGesture;
+      }
       const wristRotation=right[2].getWorldQuaternion(new THREE.Quaternion());
-      const pitch=(forehand?1:-1)*(.30*windup-.35*follow)+(tt.shot==='topspin'?.12:tt.shot==='push'?-.12:0);
-      const twist=new THREE.Quaternion().setFromEuler(new THREE.Euler(0,swingSign*(.40*windup-.58*follow),sign*pitch));
+      const strokePitch=stroke?.kind==='topspin'?.12:stroke?.kind==='push'?-.12:0;
+      const pitch=swing*(.30*windup-.35*follow)+strokePitch*follow;
+      const twist=new THREE.Quaternion().setFromEuler(new THREE.Euler(0,swing*(.40*windup-.58*follow),sign*pitch));
       const offset=contact.getWorldPosition(new THREE.Vector3()).sub(right[2].getWorldPosition(new THREE.Vector3())).applyQuaternion(twist);
       wristRotation.premultiply(twist);
-      solveLimb(...right,target.clone().sub(offset),new THREE.Vector3(root.position.x-sign*.05,1.12,root.position.z-sign*(forehand?.48:.30)));
+      const elbowSpread=.39+.09*swing*Math.max(windup,follow);
+      solveLimb(...right,target.clone().sub(offset),new THREE.Vector3(root.position.x-sign*.05,1.12,root.position.z-sign*elbowSpread));
       setWorldRotation(right[2],wristRotation);
       // The free arm balances the stroke and presents the ball during service.
       const free=new THREE.Vector3(root.position.x+sign*.29,1.18,root.position.z+sign*(.26-.10*follow));
-      if(serving){free.set(root.position.x+sign*.44,1.065,lane(game.paddles[side])+.04*sign);}
+      if(serving){free.lerp(new THREE.Vector3(root.position.x+sign*.44,1.065,lane(game.paddles[side])+.04*sign),serveGesture);}
       const freeRotation=left[2].getWorldQuaternion(new THREE.Quaternion());
       solveLimb(...left,free,new THREE.Vector3(root.position.x,1.1,root.position.z+sign*.50));setWorldRotation(left[2],freeRotation);
       // Athletic staggered stance, alternating lateral shuffle steps, level soles.

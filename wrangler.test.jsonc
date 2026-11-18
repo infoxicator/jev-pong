@@ -39,7 +39,10 @@
     "head_sampling_rate": 0.1
   },
   "vars": {
-    "OPENROUTER_API_KEY": "unused-fixture-key",
+    "TYPESAFE_API_KEY": "unused-fixture-key",
+    "ACCESS_ISSUER": "https://test-game.cloudflareaccess.com",
+    "ACCESS_AUD": "test-pong",
+    "ACCESS_OWNER_EMAIL": "owner@example.test",
     "OPENAI_API_KEY": "unused-openai-fixture-key",
     "ROOM_CREATE_TOKEN": "local-test-only"
   },

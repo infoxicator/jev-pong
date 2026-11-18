@@ -16,7 +16,7 @@
     "demo": "node scripts/demo.mjs",
     "test:provider": "tsx scripts/verify-provider.ts",
     "demo:smoke": "node scripts/demo.mjs --smoke",
-    "verify": "npm run build && npm test && npm run test:provider && npm run test:luna && npm run test:quota && npm run test:clock && npm run test:lifecycle && npm run test:brains && npm run test:e2e && npm run test:mcp",
+    "verify": "npm run build && npm test && npm run test:provider && npm run test:luna && npm run test:quota && npm run test:clock && npm run test:lifecycle && npm run test:brains && npm run test:tactics && npm run test:e2e && npm run test:mcp",
     "demo:luna": "node scripts/demo.mjs --matchup=jev-vs-luna",
     "test:luna": "tsx scripts/verify-luna.ts",
     "test:quota": "tsx scripts/verify-quota.ts",
@@ -31,6 +31,7 @@
     "demo:3d:smoke": "node scripts/demo.mjs --3d --smoke",
     "test:brains": "tsx scripts/verify-table-tennis-brains.ts",
     "test:lifecycle": "tsx scripts/verify-decision-lifecycle.ts",
+    "test:tactics": "node --import tsx scripts/verify-tactics.ts",
     "benchmark": "node --import tsx scripts/benchmark.ts"
   },
   "devDependencies": {

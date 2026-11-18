@@ -5,7 +5,7 @@ export const BENCHMARK_PACE = .5;
 export const DECISION_DEADLINE_MS = 750;
 export const APPLY_TICKS = Math.round(120 * DECISION_DEADLINE_MS / 1000 * BENCHMARK_PACE);
 const TACTICS = ['safe', 'deep', 'drop'] as const;
-export const TACTIC_LABELS = { safe: 'Safe return', deep: 'Deep corner', drop: 'Short drop' };
+export const TACTIC_LABELS = { safe: 'Safe return', deep: 'Deep corner', drop: 'Short drop', line: 'Down the line' };
 type Drill = 'wide return' | 'recovery' | 'high ball' | 'serve receive';
 type Placement = { x: number; y: number };
 export interface ShotOption {
@@ -23,6 +23,11 @@ export interface ShotRead {
   contactHeight: number;
   flightMs: number;
   applyAfterMs: number;
+  pace?: number;
+  opponentReactionMs?: number;
+  rally?: number;
+  point?: number;
+  matchContext?: { ownScore: number; opponentScore: number; incomingShot: TacticalShot | 'serve' };
   options: ShotOption[];
 }
 export interface ShotResult {

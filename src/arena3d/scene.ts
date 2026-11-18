@@ -6,7 +6,7 @@ import { BALL_RADIUS,TABLE_TOP,ballPosition,cameraPose,HALF_LENGTH,HALF_WIDTH,SC
 import { createRobot } from './robot';
 const TEAM={left:0xd9ff92,right:0xff794c};
 
-export async function createArena3D(canvas:HTMLCanvasElement){
+export async function createArena3D(canvas:HTMLCanvasElement,modelURL='/models/arena-robot.glb'){
   const renderer=new THREE.WebGLRenderer({canvas,antialias:true,powerPreference:'high-performance'});
   renderer.setPixelRatio(Math.min(devicePixelRatio,1.75));renderer.shadowMap.enabled=true;renderer.shadowMap.type=THREE.PCFSoftShadowMap;
   renderer.toneMapping=THREE.ACESFilmicToneMapping;renderer.toneMappingExposure=1.0;
@@ -64,7 +64,7 @@ export async function createArena3D(canvas:HTMLCanvasElement){
   const fill=new THREE.DirectionalLight(0xb6d2ff,1.2);fill.position.set(4,4,-5);scene.add(fill);
   const rim=new THREE.DirectionalLight(0xffffff,1.1);rim.position.set(-7,3,-2);scene.add(rim);
   // Load the locally authored Blender asset once and duplicate its articulated hierarchy.
-  const asset=await new GLTFLoader().loadAsync('/models/arena-robot.glb');
+  const asset=await new GLTFLoader().loadAsync(modelURL);
   const robots={} as Record<Side,ReturnType<typeof createRobot>>;
   for(const side of ['left','right'] as const){
     const root=asset.scene.clone(true);root.name=`${side}-robot`;

@@ -21,7 +21,7 @@ const reservation=createServer();reservation.listen(0,'127.0.0.1');await once(re
 const address=reservation.address();assert(address&&typeof address!=='string');await new Promise<void>(r=>reservation.close(()=>r()));
 const origin=`http://127.0.0.1:${address.port}`;
 const preload=`const original=globalThis.fetch;globalThis.fetch=(input,init)=>{if(String(input)!=='https://api.openai.com/v1/decisions')throw Error('External network forbidden');return original('http://127.0.0.1:${f.port}/v1/decisions',init);};`;
-const child=spawn(process.execPath,['--import','tsx','--import',`data:text/javascript,${encodeURIComponent(preload)}`,'server/index.ts','--production'],{env:{...process.env,PORT:String(address.port),PONG_RULES:'table-tennis',PONG_MATCHUP:'jev-vs-luna',JEV_PROVIDER:'mock',JEV_MOCK:'',LUNA_MOCK:'0',OPENAI_API_KEY:'lifecycle-fixture-only',LUNA_INTERVAL_MS:'600',LUNA_TPM_BUDGET:'60000'},stdio:['ignore','pipe','pipe']});
+const child=spawn(process.execPath,['--import','tsx','--import',`data:text/javascript,${encodeURIComponent(preload)}`,'server/index.ts','--production'],{env:{...process.env,PORT:String(address.port),PONG_RULES:'pong',PONG_MATCHUP:'jev-vs-luna',JEV_PROVIDER:'mock',JEV_MOCK:'',LUNA_MOCK:'0',OPENAI_API_KEY:'lifecycle-fixture-only',LUNA_INTERVAL_MS:'600',LUNA_TPM_BUDGET:'60000'},stdio:['ignore','pipe','pipe']});
 let output='';child.stdout.on('data',d=>output+=d);child.stderr.on('data',d=>output+=d);
 const until=async(check:()=>boolean|Promise<boolean>,label:string,timeout=15000)=>{const end=Date.now()+timeout;while(Date.now()<end){if(await check())return;await new Promise(r=>setTimeout(r,10));}throw Error(`Timed out: ${label}`);};
 const peers:WebSocket[]=[];let heartbeat:ReturnType<typeof setInterval>|undefined;
@@ -29,19 +29,19 @@ try{
   await until(()=>fetch(`${origin}/health`).then(r=>r.ok).catch(()=>{if(child.exitCode!==null)throw Error(output);return false;}),'ready');
   const messages:ServerMessage[]=[];let latest:ArenaState|undefined;
   for(const side of ['left','right']){
-    const ws=new WebSocket(`${origin.replace('http:','ws:')}/ws?side=${side}&rules=table-tennis`,{origin});peers.push(ws);
+    const ws=new WebSocket(`${origin.replace('http:','ws:')}/ws?side=${side}`,{origin});peers.push(ws);
     ws.on('message',raw=>{const m=JSON.parse(String(raw));if(side==='right'){messages.push(m);if(m.type==='state')latest=m;}});await once(ws,'open');
   }
   heartbeat=setInterval(()=>peers.forEach(ws=>ws.send(JSON.stringify({type:'ping',sent:Date.now()}))),2000);
   const right=peers[1],send=(type:string)=>right.send(JSON.stringify({type}));
   await until(()=>latest?.connected.left===true&&latest.connected.right,'both seats');
-  assert.equal(latest!.gameSpeed,.5);
+  assert.equal(latest!.gameSpeed,1);
   const before=latest!.game.tick;messages.length=0;await new Promise(r=>setTimeout(r,1000));
   const elapsedTicks=latest!.game.tick-before,frames=messages.filter(m=>m.type==='state').length;
-  assert(elapsedTicks>=45&&elapsedTicks<=75,`half-speed ticks/sec: ${elapsedTicks}`);
+  assert(elapsedTicks>=105&&elapsedTicks<=135,`full-speed ticks/sec: ${elapsedTicks}`);
   assert(frames>=20&&frames<=40,`wall-time snapshots/sec: ${frames}`);
   for(const cause of ['reset','point'] as const){
-    if(cause==='point')await until(()=>{const g=latest!.game;return g.phase==='play'&&Math.abs(g.ball.y-280)>60&&(g.ball.vx>0?g.ball.x>850:g.ball.x<150);},'ball approaches an unpositioned paddle');
+    if(cause==='point')await until(()=>{const g=latest!.game;return g.phase==='play'&&Math.abs(g.ball.y-280)>80&&(g.ball.vx>0?g.ball.x>850:g.ball.x<150);},'ball approaches an unpositioned paddle');
     const requestTick=latest!.game.tick;
     messages.length=0;send('decide');await until(()=>replies.length===1,'request reached fixture');
     if(cause==='reset'){send('reset');await until(()=>latest!==undefined&&latest.game.tick<requestTick,'reset applied');}

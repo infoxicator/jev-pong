@@ -6,7 +6,9 @@ import { config as loadEnv } from 'dotenv';
 import { WebSocketServer, WebSocket } from 'ws';
 import { FixedClock } from '../src/clock';
 import { gameSpeed } from '../src/pace';
-import { createPlayers } from './players';
+import { createPlayers, createShotPicker } from './players';
+import { LiveTableTennis } from '../src/live-tactics';
+import { isHardMatch, seatsReady } from '../src/hard-match';
 import { isMatchup, matchupTitle, type Matchup, type Engine } from '../src/match';
 import { createGame, step, startServe, setIntent, SIDES, type Side, type GameState, type Rules } from '../src/physics';
 import { snapshot, type Decision } from '../src/agents';
@@ -25,10 +27,12 @@ const players:Record<Side,WebSocket|null>={left:null,right:null};
 const decisions:Record<Side,Decision|null>={left:null,right:null},intents={left:0,right:0},intentTicks={left:0,right:0};
 // Provider cooldown survives player reconnects, new matches, and matchup changes.
 const providerCooldowns:Partial<Record<Engine,number>>={};
+const tactics = new LiveTableTennis(createShotPicker(() => roster, providerCooldowns));
+let publishedLog=tactics.log;
 let history:GameState[]=[],lastReplay:GameState[]=[];
 const send=(ws:WebSocket,message:ServerMessage)=>{if(ws.readyState===WebSocket.OPEN)ws.send(JSON.stringify(message));};
 const connected=()=>({left:players.left?.readyState===WebSocket.OPEN,right:players.right?.readyState===WebSocket.OPEN});
-const state=():ArenaState=>({type:'state',game,gameSpeed:gameSpeed(game,matchup),connected:connected(),serverTime:Date.now(),decisions,intents,mode:roster.mode,matchup,players:roster.players});
+const state=():ArenaState=>({type:'state',game,gameSpeed:gameSpeed(game,matchup),connected:connected(),serverTime:Date.now(),decisions,intents:game.tt?tactics.intents:intents,...(game.tt?{tactics:tactics.turns}:{}),mode:roster.mode,matchup,players:roster.players});
 const mcp=createPongMcp(`http://127.0.0.1:${port}`,state);
 const server=createServer(async(req,res)=>{
   if(req.url?.split('?')[0]==='/mcp'){await mcp.handle(req,res);return;}
@@ -55,14 +59,15 @@ wss.on('connection',(ws,req)=>{
   const requested=new URL(req.url??'/',`http://${req.headers.host}`).searchParams.get('side');
   const side:Side|null=requested==='left'||requested==='right'?requested:null;
   const rules=new URL(req.url??'/',`http://${req.headers.host}`).searchParams.get('rules')==='table-tennis'?'table-tennis':initialRules;
-  if(side&&!players.left&&!players.right&&Boolean(game.tt)!==(rules==='table-tennis')){game=createGame(rules);generation++;history=[];lastReplay=[];}
+  if(side&&!players.left&&!players.right&&Boolean(game.tt)!==(rules==='table-tennis')){game=createGame(rules);generation++;tactics.cancel(true);history=[];lastReplay=[];}
   const compatible=Boolean(game.tt)===(rules==='table-tennis');
   const assigned=side&&!players[side]&&compatible?side:null;
   if(assigned) {
     players[assigned]=ws;decisions[assigned]=null;intentTicks[assigned]=game.tick;
-    if(connected().left&&connected().right&&game.phase==='lobby') {game.ball={x:500,y:280,vx:430,vy:148};game.rally=0;startServe(game);}
+    if(seatsReady(game.tt?.hard,connected())&&game.phase==='lobby') {game.ball={x:500,y:280,vx:430,vy:148};game.rally=0;startServe(game);}
   }
   send(ws,{type:'joined',side:assigned,...(side&&!assigned?{reason:compatible?'This paddle is already connected. Watching as spectator.':'This match uses different rules. Watching as spectator.'}:{})});send(ws,state());
+  if(game.tt)send(ws,{type:'tactical-log',entries:tactics.log});
   let busy=false,lastDecision=0,sequence=0,lastAccepted=0,lastSeen=Date.now(),windowStart=Date.now(),messages=0;
   const heartbeat=setInterval(()=>{if(Date.now()-lastSeen>10000)ws.terminate();},2000);
   ws.on('message',async data=>{
@@ -73,13 +78,20 @@ wss.on('connection',(ws,req)=>{
       const msg=JSON.parse(data.toString()) as ClientMessage;
       if(msg.type==='ping'&&Number.isFinite(msg.sent)){send(ws,{type:'pong',sent:msg.sent});return;}
       if(msg.type==='replay'){send(ws,{type:'replay',frames:lastReplay});return;}
-      if(msg.type==='reset'||msg.type==='matchup') {
+      if(msg.type==='reset'||msg.type==='matchup'||msg.type==='table-settings') {
+        if(msg.type==='table-settings'){
+          if((msg.hard!==null&&!isHardMatch(msg.hard))||(!game.tt&&(players.left||players.right))){
+            send(ws,{type:'error',message:'Table-tennis settings are unavailable for this match'});return;
+          }
+        }
         if(msg.type==='matchup'){if(!isMatchup(msg.matchup)){send(ws,{type:'error',message:'Invalid matchup'});return;}const nextRoster=createPlayers(process.env,msg.matchup);matchup=msg.matchup;roster=nextRoster;}
-        game=createGame(game.tt?'table-tennis':'pong');generation++;history=[];lastReplay=[];
+        const hard=msg.type==='table-settings'?msg.hard??undefined:game.tt?.hard;
+        game=createGame(game.tt||msg.type==='table-settings'?'table-tennis':'pong',hard);generation++;tactics.cancel(true);history=[];lastReplay=[];
         for(const s of SIDES){decisions[s]=null;intents[s]=0;intentTicks[s]=0;}
-        if(connected().left&&connected().right)startServe(game);return;
+        if(seatsReady(hard,connected()))startServe(game);return;
       }
       if(!assigned||players[assigned]!==ws)return;
+      if(game.tt)return;
       if(msg.type==='decide') {
         if(busy)return;
         if(Date.now()-lastDecision<150||game.phase==='lobby'||game.phase==='won'){send(ws,{type:'decision-cancelled'});return;}
@@ -101,17 +113,29 @@ wss.on('connection',(ws,req)=>{
     }catch{send(ws,{type:'error',message:'Invalid message'});}
   });
   ws.on('error',()=>{});
-  ws.on('close',()=>{clearInterval(heartbeat);if(assigned&&players[assigned]===ws){players[assigned]=null;game.phase='lobby';}});
+  ws.on('close',()=>{clearInterval(heartbeat);if(assigned&&players[assigned]===ws){
+    players[assigned]=null;
+    if(!seatsReady(game.tt?.hard,connected())){game.phase='lobby';tactics.cancel();}
+  }});
 });
 const clock=new FixedClock(performance.now());let lastBroadcast=-Infinity;
 const timer=setInterval(()=>{
   const now=performance.now();
+  const pace=gameSpeed(game,matchup);
   clock.advance(now,()=>{
-    for(const side of SIDES)if(game.tick-intentTicks[side]>240)setIntent(game,side,280);
-    const point=game.pointId;step(game);
+    const point=game.pointId;
+    if(game.tt)tactics.step(game,pace);
+    else{
+      for(const side of SIDES)if(game.tick-intentTicks[side]>240)setIntent(game,side,280);
+      step(game);
+    }
     if(game.pointId!==point){lastReplay=[...history,structuredClone(game)];history=[];}
     if(game.tick%4===0&&game.phase==='play'){history.push(structuredClone(game));if(history.length>240)history.shift();}
-  },gameSpeed(game,matchup));
+  },pace);
+  if(publishedLog!==tactics.log){
+    publishedLog=tactics.log;
+    for(const client of wss.clients)send(client,{type:'tactical-log',entries:publishedLog});
+  }
   if(now-lastBroadcast>=1000/30){lastBroadcast=now;const message=state();for(const client of wss.clients)send(client,message);}
 },4);
 server.listen(port,'127.0.0.1',()=>console.log(`\n${matchupTitle(matchup)} · ${matchup.toUpperCase()} / ${roster.mode.toUpperCase()}\n  Local: http://127.0.0.1:${port}\n  Left:  http://127.0.0.1:${port}/?side=left\n  Right: http://127.0.0.1:${port}/?side=right\n  Watch: http://127.0.0.1:${port}/?spectate\n`));

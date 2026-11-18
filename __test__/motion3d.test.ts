@@ -5,6 +5,7 @@ import { createGame,step,INSET,PADDLE_W,R,W,H } from '../src/physics';
 import { BALL_RADIUS,CONTACT_HEIGHT,HALF_LENGTH,SCALE,TABLE_TOP,ballContactX,ballPosition } from '../src/arena3d/cameras';
 import { interpolateGame } from '../src/arena3d/interpolation';
 import { createRobot } from '../src/arena3d/robot';
+import { TT_REACH } from '../src/table-tennis';
 let model:THREE.Group;
 beforeAll(async()=>{model=(await new GLTFLoader().loadAsync('/models/arena-robot.glb')).scene;});
 it('uses realistic thin rubber blades, with both wrists holding their bats',()=>{
@@ -15,6 +16,40 @@ it('uses realistic thin rubber blades, with both wrists holding their bats',()=>
   const handle=model.getObjectByName('Racket_handle')!.getWorldPosition(new THREE.Vector3());
   const wrist=model.getObjectByName('Wrist_R')!.getWorldPosition(new THREE.Vector3());
   expect(handle.distanceTo(wrist)).toBeLessThan(.06);
+});
+it('shades the paddle faces and rim outward at every camera angle',()=>{
+  for(const name of ['Racket_blade','Racket_edge_tape','Racket_face','Racket_reverse']){
+    const mesh=model.getObjectByName(name) as THREE.Mesh<THREE.BufferGeometry>;
+    const {position,normal}=mesh.geometry.attributes;
+    mesh.geometry.computeBoundingBox();
+    const center=mesh.geometry.boundingBox!.getCenter(new THREE.Vector3());
+    const direction=new THREE.Vector3(),surfaceNormal=new THREE.Vector3();
+    let outward=0;
+    for(let i=0;i<position.count;i++){
+      direction.fromBufferAttribute(position,i).sub(center);
+      surfaceNormal.fromBufferAttribute(normal,i);
+      if(direction.dot(surfaceNormal)>0)outward++;
+    }
+    expect(outward/position.count).toBeGreaterThan(.97);
+  }
+});
+it('moves the racket smoothly through near-center and near-reach returns',()=>{
+  for(const side of ['left','right'] as const)for(const boundary of [0,TT_REACH+8]){
+    const root=model.clone(true),sign=side==='left'?1:-1;
+    root.rotation.y=sign*Math.PI/2;
+    const rig=createRobot(root,side),wrist=root.getObjectByName('Wrist_R')!;
+    const game=createGame('table-tennis');
+    game.phase='play';game.tick=100;
+    game.ball={x:side==='left'?150:850,y:game.paddles[side]+boundary-.25,vx:-sign*1000,vy:0};
+    game.tt!.height=1.03;
+    const before=rig.update(game,new THREE.Vector3(...ballPosition(game)),'spectator',game.tick/120);
+    const rotation=wrist.getWorldQuaternion(new THREE.Quaternion());
+    game.tick++;
+    game.ball.y+=.5;
+    const after=rig.update(game,new THREE.Vector3(...ballPosition(game)),'spectator',game.tick/120);
+    expect(after.face.distanceTo(before.face)).toBeLessThan(.02);
+    expect(wrist.getWorldQuaternion(new THREE.Quaternion()).angleTo(rotation)).toBeLessThan(.10);
+  }
 });
 it('has one receiver-side table bounce, clears the net and joins continuously at each return',()=>{
   const s=createGame();s.phase='play';

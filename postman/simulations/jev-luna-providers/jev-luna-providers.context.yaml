@@ -1,0 +1,143 @@
+# Simulation context — jev-luna-providers
+#
+# Generated 2026-11-18.
+#
+# What is believed to be true about the services this simulation stands in for,
+# and what each belief rests on. A `null` is something nobody has established
+# yet.
+#
+# Written from a fixed template and never recreated. How to read it, and how to
+# write a run back into it, is in the api-simulation skill
+# (skills/api-simulation/reference/context_file.md).
+
+simulation: "jev-luna-providers"
+generated: "2026-11-18"
+
+# What this simulation stands in for and what work it unblocks. Both need
+# hindsight, so they are the last thing to write. The members it serves, their
+# route keys and the hosts they answer for are in the .sim.yaml beside this file.
+purpose:
+  stands_in_for: >-
+    TypeSafe System One (Jev, https://api.typesafe.ai/v1/systemone via @typesafe-ai/sdk 0.7.0) and
+    OpenAI Decisions (Luna, gpt-6-luna, https://api.openai.com/v1/decisions via fetch), at the
+    latencies the repo records as observed (164 ms / 285 ms, fixed). The stand-ins answer from the
+    serialized request only; they do not imitate either model's judgment.
+  unblocks: >-
+    Running the real adapters and the real game server in live mode (JEV_MOCK=0, LUNA_MOCK=0) with
+    no provider quota: wire contract, answer decoding, cooldowns and the stroke-triggered tactical
+    loop. It does not unblock comparing Jev and Luna; any score earned against these stand-ins
+    measures the stand-ins' heuristic, not a model. Failure paths live in jev-luna-degraded.
+
+# What the code relies on about a dependency's behaviour — one claim per entry,
+# each { id, status, claim, reason, verification, source, updated_at }.
+# Status vocabulary and field meanings: see the template header above and the
+# api-simulation skill's reference/context_file.md.
+assumptions:
+  - id: jev-systemone-wire-shape
+    status: supported
+    claim: >-
+      For the game's choice questions, System One accepts POST /v1/systemone with
+      {model, state, questions: {<name>: {type: "choice", criteria: {<label>: <text>}}}} and answers
+      {model, answers: {<name>: {type: "choice", choice, confidence, probabilities: {<label>: n}}}, usage}.
+    reason: >-
+      The SDK's own types and request code define this shape, and the same adapter decoded real
+      answers in a live run. Scope is choice questions only; noul/score/box are never sent.
+    verification: >-
+      2026-11-18: read @typesafe-ai/sdk 0.7.0 types (ChoiceQuestion, ChoiceResponse, SystemOneResult)
+      and systemOne(), which POSTs to /v1/systemone. 2026-11-17 live benchmark (thread "Evaluate
+      Fairness of Pong Benchmark"): 48 real Jev requests through tacticalJev, 24/24 deadlines met,
+      answers decoded. 2026-11-18 baseline run of this simulation: createBrain and tacticalJev
+      decoded the stand-in's answers with no transport override (fingerprint sim-2026-11-18).
+    source: >-
+      node_modules/@typesafe-ai/sdk/dist/index.d.mts:70-200; node_modules/@typesafe-ai/sdk/dist/index.mjs:946-965;
+      server/jev.ts:14-36; server/benchmark-providers.ts:64-92
+    updated_at: "2026-11-18"
+  - id: luna-decisions-wire-shape
+    status: supported
+    claim: >-
+      Decisions accepts POST /v1/decisions with {model: "gpt-6-luna", input: [{role: "user", content:
+      [input_text, input_json]}], questions: [{type: "choice", name, choices: [{value}]}]} and answers
+      {model, answers: [{type: "choice", name, choice, confidence, probabilities}], usage}, with answers
+      identified by name rather than position.
+    reason: >-
+      The adapter was written against this contract and decoded real answers live. The order of
+      real answers was not recorded, so the adapter matches by name; the stand-in returns them reversed
+      to keep that honest.
+    verification: >-
+      2026-11-17 live benchmark: 48 real Luna requests, 22/24 within the 750 ms deadline, answers
+      decoded by tacticalLuna. 2026-11-18 baseline run: createLunaBrain and tacticalLuna decoded
+      reversed-order answers from the stand-in (fingerprint sim-2026-11-18).
+    source: server/luna.ts:14-20,37-48,59-80; server/benchmark-providers.ts:93-106; scripts/verify-luna.ts
+    updated_at: "2026-11-18"
+  - id: luna-model-name-may-carry-suffix
+    status: unknown
+    claim: The response's model is "gpt-6-luna" or "gpt-6-luna-<suffix>"; anything else is rejected as invalid.
+    reason: >-
+      The adapter accepts /^gpt-6-luna(?:-|$)/. Live answers were accepted, so the real value matched
+      that pattern on 2026-11-17, but its exact form was not recorded, and the stand-in always sends the bare name.
+    verification: Inferred from 2026-11-17 live answers being decoded; the value itself was not logged.
+    source: server/luna.ts:76; server/benchmark-providers.ts:101
+    updated_at: "2026-11-18"
+  - id: jev-latency-164ms
+    status: unknown
+    claim: A Jev System One decision returns in about 164 ms.
+    reason: >-
+      The repo calls 164 ms "observed", and the earlier fairness analysis uses it, but no raw
+      measurements or distribution are committed. This simulation holds every request exactly 164 ms,
+      so it models no jitter and no tail.
+    verification: >-
+      2026-11-18: found only the constant and comment. Settle by logging responseMs from a live run
+      (decision log in the 3D arena) and recording percentiles here.
+    source: scripts/verify-table-tennis-brains.ts:53,68; scripts/benchmark-timing.ts:6
+    updated_at: "2026-11-18"
+  - id: luna-latency-285ms
+    status: unknown
+    claim: A Luna Decisions request returns in about 285 ms.
+    reason: >-
+      Same provenance as jev-latency-164ms. The 2026-11-17 live run had 2 of 24 Luna requests miss a
+      750 ms deadline, so the real tail is well beyond a fixed 285 ms, and this simulation does not
+      reproduce it.
+    verification: >-
+      2026-11-18: constant and comment only; artifacts/luna-timing-analysis.json holds a game
+      simulation built on these values, not raw timings. Settle with percentiles from a live run.
+    source: scripts/verify-table-tennis-brains.ts:53,68; artifacts/luna-timing-analysis.json; thread "Evaluate Fairness of Pong Benchmark" (2026-11-17 live run)
+    updated_at: "2026-11-18"
+  - id: luna-ratelimit-headers
+    status: unknown
+    claim: >-
+      Successful Decisions responses carry x-ratelimit-limit-tokens, x-ratelimit-limit-project-tokens
+      and/or x-ratelimit-limit-requests, which the adapter uses to lengthen Luna's cooldown.
+    reason: >-
+      lunaCooldown reads them, but no real values are recorded. The stand-in sends none, so under
+      simulation the cooldown always falls back to LUNA_INTERVAL_MS (600 ms) and LUNA_TPM_BUDGET.
+    verification: >-
+      2026-11-18 baseline: cooldown observed as 600 ms (no headers). Settle by recording these
+      headers from one live Luna response.
+    source: server/luna.ts:24-29
+    updated_at: "2026-11-18"
+  - id: live-tactical-match-runs-on-providers
+    status: supported
+    claim: >-
+      With both providers reachable, the 3D tactical match (PONG_RULES=table-tennis, jev-vs-luna, live
+      mode) asks each receiving seat for a shot and applies a provider-sourced choice.
+    reason: >-
+      This is about the caller, exercised through the real server, not the providers. Within this run
+      both seats produced status "selected" with source jev and luna.
+    verification: >-
+      2026-11-18 baseline run (fingerprint sim-2026-11-18): server/index.ts --production started in mode
+      "live" behind the proxy with sim-only keys; Jev selected "deep" and Luna "drop"; the proxy log
+      showed 6 mocked requests (3 per member) and 0 passed through.
+    source: scripts/verify-simulation.ts (baseline); src/live-tactics.ts:155-180
+    updated_at: "2026-11-18"
+
+# What the claims above were written against: { id, date, commit, cli }, from
+# `git rev-parse HEAD` and `postman --version`. Append an entry when either
+# differs, and say so when the tree is dirty — a sha alone reads as a clean
+# checkout. A claim carried over from an older fingerprint is one nothing has
+# re-checked since.
+fingerprints:
+  - id: sim-2026-11-18
+    date: "2026-11-18"
+    commit: 944abd87dba11123765f27d382df62c6f586aad8
+    dirty: "yes — uncommitted 3D arena, tactics and MCP work, plus this simulation"
+    cli: "1.90.0"
